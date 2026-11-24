@@ -15,15 +15,29 @@ is_loopback_loaded() {
     pactl list short modules | grep -E "module-loopback.*source=${SINK_NAME}\.monitor" > /dev/null 2>&1
 }
 
+# Create the null sink at 48 kHz stereo (Discord's native format, so no server-side resampling).
+# Quoting for sink_properties differs between PipeWire-pulse (original form) and a real PulseAudio
+# daemon (needs the whole value double-quoted), so both are tried, with and without the format args.
+try_load_sink() {
+    local props fmt
+    for props in "device.description='${SINK_DESC}'" "\"device.description='${SINK_DESC}'\""; do
+        for fmt in "rate=48000 channels=2 channel_map=front-left,front-right" ""; do
+            # shellcheck disable=SC2086
+            if SINK_ID=$(pactl load-module module-null-sink sink_name="${SINK_NAME}" \
+                    sink_properties="${props}" ${fmt} 2>/dev/null); then
+                return 0
+            fi
+        done
+    done
+    return 1
+}
+
 cmd_setup() {
     echo "==> Configuring PipeWire audio sink..."
     if is_sink_loaded; then
         echo "  [OK] Sink '${SINK_NAME}' is already active."
     else
-        SINK_ID=$(pactl load-module module-null-sink \
-            sink_name="${SINK_NAME}" \
-            sink_properties="device.description='${SINK_DESC}'")
-        if [ $? -eq 0 ]; then
+        if try_load_sink; then
             echo "  [OK] Created null sink '${SINK_NAME}' (Module ID: ${SINK_ID})"
         else
             echo "  [ERROR] Failed to create null sink '${SINK_NAME}'" >&2

@@ -1,0 +1,6 @@
+# Desktop controller (Windows / macOS / Linux desktop). The headless Docker bot only needs requirements.txt.
+-r requirements.txt
+PySide6>=6.7
+keyring>=25.0
+sounddevice>=0.4.7; sys_platform == "darwin"
+pyaudiowpatch>=0.2.12.8; sys_platform == "win32"
