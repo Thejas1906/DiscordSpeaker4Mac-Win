@@ -78,3 +78,14 @@ def play(pipeline, x, rate, chunk_ms=10, frames_per_read=None):
         while owed >= 1.0:
             out.append(pipeline.read_frame()); owed -= 1.0
     return np.concatenate(out)
+
+
+def paced_read(pipeline, frames):
+    """Read 20 ms frames on absolute deadlines (like discord.py's player). Plain sleep(0.02) loops drift behind
+    real time on busy CI runners, which overflows the buffer and splices the audio."""
+    import time
+    out, t0 = [], time.perf_counter()
+    for k in range(frames):
+        time.sleep(max(0.0, t0 + (k + 1) * 0.02 - time.perf_counter()))
+        out.append(pipeline.read_frame())
+    return np.concatenate(out)

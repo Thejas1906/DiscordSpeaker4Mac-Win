@@ -19,7 +19,7 @@ from unittest.mock import patch
 import numpy as np
 
 import _path  # noqa: F401
-from _path import fit, pid_alive, rms_db, sine
+from _path import fit, paced_read, pid_alive, rms_db, sine
 from audio.models import CaptureState, SourceKind
 from audio.pipeline import AudioPipeline
 from audio.quality_config import QualityConfig
@@ -552,7 +552,7 @@ class SpotifyConnectTests(TmpDirCase):
         self.assertTrue(wait_for(lambda: p.health.frames_in > 44100 * 1.2, 8))
         self.assertEqual((p.health.input_rate, p.health.input_channels), (44100, 2))
         self.assertEqual(b.spotify.now_playing, "Blinding Lights"); self.assertEqual(b.spotify.user, "tester")
-        y = np.concatenate([(time.sleep(0.02), p.read_frame())[1] for _ in range(60)])[12000:]
+        y = paced_read(p, 60)[12000:]
         f = np.fft.rfftfreq(len(y), 1 / 48000)
         sp = lambda c: np.abs(np.fft.rfft(y[:, c] * np.hanning(len(y))))
         self.assertAlmostEqual(f[sp(0).argmax()], 440, delta=4)
