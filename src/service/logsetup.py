@@ -67,6 +67,8 @@ def setup(component: str, level: int = logging.INFO, stream=sys.stderr) -> Path:
         sh.addFilter(RedactFilter())
         root.addHandler(sh)
     logging.getLogger("discord").setLevel(logging.WARNING)
-    logging.getLogger("discord.voice_state").setLevel(logging.INFO)   # connect/DAVE/reconnect diagnostics
+    # Voice diagnostics (connect / DAVE E2EE handshake). Debug level is written to the log *file* only.
+    logging.getLogger("discord.voice_state").setLevel(logging.DEBUG)
+    logging.getLogger("discord.gateway").setLevel(logging.DEBUG)
     logging.getLogger("discord.voice_client").setLevel(logging.INFO)
     return path
