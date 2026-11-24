@@ -81,7 +81,21 @@ while i < args.count { if args[i] == "--pid", i + 1 < args.count, let p = Int32(
 
 guard #available(macOS 14.2, *) else { die("process taps need macOS 14.2 or newer", 2) }
 
-guard let outDev = defaultOutput(), let outUID = getString(outDev, kAudioDevicePropertyDeviceUID) else { die("no default output device", 1) }
+// Which device clocks the aggregate? NOT the default output by default: a Bluetooth headset drops to a 16 kHz
+// "call" profile as soon as any app (e.g. Discord) opens its microphone, and the capture would follow it down
+// to 16 kHz (muffled). The tap itself is independent of the output device, so clock from the built-in output,
+// which stays at 44.1/48 kHz, and fall back to the default output only if there is none.
+func builtInOutput() -> AudioObjectID? {
+    for d in getIDs(AudioObjectID(kAudioObjectSystemObject), kAudioHardwarePropertyDevices) {
+        var a = addr(kAudioDevicePropertyStreams, kAudioObjectPropertyScopeOutput); var size: UInt32 = 0
+        guard AudioObjectGetPropertyDataSize(d, &a, 0, nil, &size) == noErr, size > 0 else { continue }
+        if getScalar(d, kAudioDevicePropertyTransportType, UInt32(0)) == kAudioDeviceTransportTypeBuiltIn { return d }
+    }
+    return nil
+}
+let useDefaultClock = args.contains("--clock-default")
+guard let outDev = (useDefaultClock ? defaultOutput() : (builtInOutput() ?? defaultOutput())),
+      let outUID = getString(outDev, kAudioDevicePropertyDeviceUID) else { die("no output device to clock from", 1) }
 
 // ---- tap ----------------------------------------------------------------
 let tapDesc: CATapDescription
@@ -178,11 +192,6 @@ for sig in [SIGTERM, SIGINT] {
     src.resume()
     signalSources.append(src)
 }
-var defAddr = addr(kAudioHardwarePropertyDefaultOutputDevice)
-AudioObjectAddPropertyListenerBlock(AudioObjectID(kAudioObjectSystemObject), &defAddr, .main) { _, _ in
-    err("{\"event\":\"default-output-changed\"}"); cleanup(); exit(75)
-}
-
 // Output device changed sample rate while capturing: restart so the Python side learns the new rate.
 var rateAddr = addr(kAudioDevicePropertyNominalSampleRate)
 AudioObjectAddPropertyListenerBlock(aggID, &rateAddr, .main) { _, _ in

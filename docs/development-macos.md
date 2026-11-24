@@ -14,8 +14,8 @@ DS_HARDWARE_TESTS=1 python -m unittest tests.test_hardware -v   # real tap test:
 ## How capture works
 
 `dsaudiotap` (Swift, `src/audio/platforms/macos/tap/dsaudiotap.swift`) creates a private **Core Audio process tap**
-(`CATapDescription`, macOS 14.2+) plus a private aggregate device on the default output, runs an IOProc, and writes interleaved little-endian float32 stereo to stdout at the device rate
-after a JSON header on stderr. `capture --pid N…` taps only those processes; `list-apps` lists audio processes. Exit codes: 2 permission/unsupported, 3 no such app, 75 default output changed (the Python side restarts it).
+(`CATapDescription`, macOS 14.2+) plus a private aggregate device clocked from the **built-in output** (not the default output: a Bluetooth headset drops to a 16 kHz call profile when an app opens its microphone, and the capture would follow it down; `--clock-default` restores the old behaviour), runs an IOProc, and writes interleaved little-endian float32 stereo to stdout at the device rate
+after a JSON header on stderr. `capture --pid N…` taps only those processes; `list-apps` lists audio processes. Exit codes: 2 permission/unsupported, 3 no such app, 75 the clock device's sample rate changed (the Python side restarts it).
 `muteBehavior = unmuted`: you keep hearing your audio.
 
 ### Permissions (important)
