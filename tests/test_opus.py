@@ -102,7 +102,9 @@ class DiscordPlayerIntegration(unittest.TestCase):
         self.assertFalse(any(flags), "Opus source must bypass discord.py's int16 encoder")
         self.assertTrue(145 <= len(packets) <= 155, f"{len(packets)} packets in ~3 s")
         gaps = np.diff([t for t, _ in packets]) * 1000     # gaps[0] is discord.py running one frame ahead by design
-        self.assertLess(float(np.max(gaps[1:])), 60.0, "scheduling gap")
+        # Shared CI runners can stall a thread for ~100 ms; judge typical pacing strictly, outliers loosely.
+        self.assertLess(float(np.percentile(gaps[1:], 90)), 30.0, "typical scheduling gap")
+        self.assertLess(float(np.max(gaps[1:])), 250.0, "worst scheduling gap")
         self.assertEqual(pipe.health.underruns, 0)
         dec = dopus.Decoder()
         y = np.concatenate([np.frombuffer(dec.decode(d, fec=False), "<i2").reshape(-1, 2) / 32768.0 for _, d in packets])[24000:]

@@ -173,11 +173,12 @@ class EngineProcessTests(unittest.TestCase):
         """Controller crash == stdin EOF: the engine must shut down by itself."""
         self.client.start()
         pid = self.client.pid
-        self.client._proc.stdin.close()
-        for _ in range(60):
-            if not pid_alive(pid):
-                break
-            time.sleep(0.1)
+        proc = self.client._proc
+        proc.stdin.close()
+        try:
+            proc.wait(timeout=10)            # also reaps the child (an un-reaped zombie still "exists")
+        except subprocess.TimeoutExpired:
+            self.fail("engine did not exit after the controller closed its pipe")
         self.assertFalse(pid_alive(pid))
 
     def test_state_stream_and_commands(self):
