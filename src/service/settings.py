@@ -94,6 +94,8 @@ class AppSettings:
             return cls()
         known = {f.name for f in fields(cls)}
         s = cls(**{k: v for k, v in data.items() if k in known})
+        # Boost above 100% only clips loud masters (Spotify has its own volume), so never restore one.
+        s.volume_percent = max(1, min(int(s.volume_percent), 100))
         if int(data.get("schema", 1)) < 2:
             s.source_id = ""        # older versions saved a system-capture source; the new default is Spotify Connect
             s.schema = 2

@@ -91,6 +91,12 @@ class SettingsAndSecrets(unittest.TestCase):
             s.source_id = "tap:system"; s.save(p)
             self.assertEqual(AppSettings.load(p).source_id, "tap:system")                      # explicit v2 choice kept
 
+    def test_saved_boost_above_100_is_not_restored(self):
+        with tempfile.TemporaryDirectory() as d:
+            p = Path(d) / "s.json"
+            p.write_text(json.dumps({"schema": 2, "volume_percent": 200}))
+            self.assertEqual(AppSettings.load(p).volume_percent, 100)
+
     def test_quality_defaults_are_music_safe(self):
         c = QualityConfig()
         self.assertEqual((c.volume, c.limiter), (1.0, True))
