@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=DiscordSpeaker
+Comment=Stream desktop audio to a Discord voice channel
+Exec=@EXEC@
+Icon=@ICON@
+Terminal=false
+Categories=AudioVideo;Audio;Network;
+StartupWMClass=DiscordSpeaker

@@ -7,3 +7,7 @@ __pycache__/
 *.log
 .pytest_cache/
 .DS_Store
+src/audio/platforms/macos/tap/build/
+build/
+dist/
+*.spec.bak

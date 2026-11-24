@@ -16,7 +16,9 @@ WORKDIR /app
 COPY src/requirements.txt ./requirements.txt
 RUN python -m pip install -r requirements.txt
 COPY src/bot.py src/audio_ctl.sh ./
-RUN chmod 644 bot.py && chmod 755 audio_ctl.sh
+COPY src/audio ./audio
+COPY src/service ./service
+RUN chmod 644 bot.py && chmod 755 audio_ctl.sh && python -m compileall -q /app
 
 USER bot
 CMD ["python", "bot.py"]

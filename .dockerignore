@@ -1,7 +1,13 @@
-# Only application source enters the build context. Never send the bot token.
+# Only the headless bot's application source enters the build context. Never send the bot token.
 *
 !Dockerfile
 !src/
 !src/requirements.txt
 !src/bot.py
 !src/audio_ctl.sh
+!src/audio/
+!src/service/
+src/audio/platforms/macos/tap/build
+src/audio/platforms/windows
+src/audio/platforms/macos
+**/__pycache__
