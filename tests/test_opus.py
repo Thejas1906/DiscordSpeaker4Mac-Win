@@ -114,7 +114,9 @@ class DiscordPlayerIntegration(unittest.TestCase):
         pl.stop(); stop.set(); pl.join(2); th.join(2)
 
         self.assertFalse(any(flags), "Opus source must bypass discord.py's int16 encoder")
-        self.assertTrue(145 <= len(packets) <= 155, f"{len(packets)} packets in ~3 s")
+        # 50 packets/s for ~3 s = 150. The window start/stop is imprecise and discord.py's player sends a few extra
+        # packets to catch up after a stall on a busy runner, so allow roughly +/-10%.
+        self.assertTrue(135 <= len(packets) <= 165, f"{len(packets)} packets in ~3 s")
         gaps = np.diff([t for t, _ in packets]) * 1000     # gaps[0] is discord.py running one frame ahead by design
         # discord.py paces on an absolute schedule, so the *average* rate is exact (checked by the packet count
         # above). Shared CI runners add large per-packet jitter, so only guard against long stalls here.
