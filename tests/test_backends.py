@@ -474,6 +474,7 @@ FAKE_LIBRESPOT = textwrap.dedent('''\
     sys.stderr.write("[INFO  librespot_core::session] Authenticated as 'tester'\\n")
     sys.stderr.write("[INFO  librespot_playback::player] Loading <Blinding Lights> with Spotify URI <spotify:track:1>\\n"); sys.stderr.flush()
     rate, n, t0 = 44100, 0, time.time()
+    burst = os.environ.get("FAKE_BURST") == "1"      # real librespot's pipe sink has no clock: it writes flat out
     while True:
         blk = rate // 100
         t = (n + np.arange(blk)) / rate
@@ -483,7 +484,8 @@ FAKE_LIBRESPOT = textwrap.dedent('''\
         except BrokenPipeError:
             sys.exit(0)
         n += blk
-        time.sleep(max(0, t0 + n / rate - time.time()))
+        if not burst:
+            time.sleep(max(0, t0 + n / rate - time.time()))
 ''')
 
 
@@ -557,6 +559,29 @@ class SpotifyConnectTests(TmpDirCase):
         sp = lambda c: np.abs(np.fft.rfft(y[:, c] * np.hanning(len(y))))
         self.assertAlmostEqual(f[sp(0).argmax()], 440, delta=4)
         self.assertAlmostEqual(f[sp(1).argmax()], 880, delta=4)
+
+    def test_unclocked_receiver_output_is_held_to_real_time(self):
+        """Regression: librespot's pipe backend writes as fast as it is read, so songs played 2-3x fast and glitched."""
+        p, b, _ = self.make(FAKE_PLAY="1", FAKE_BURST="1")
+        b.start()
+        self.assertTrue(wait_for(lambda: p.health.frames_in > 0, 8))
+        t0, f0 = time.time(), p.health.frames_in
+        time.sleep(3.0)
+        seconds_of_audio = (p.health.frames_in - f0) / 44100
+        elapsed = time.time() - t0
+        self.assertLess(seconds_of_audio, elapsed + 0.5, f"{seconds_of_audio:.1f}s of audio in {elapsed:.1f}s: running fast")
+        self.assertGreater(seconds_of_audio, elapsed - 0.8, "starved")
+        self.assertEqual(p.health.overruns, 0, "audio was dropped")
+
+    def test_pacer_unit(self):
+        from audio.spotify_connect import Pacer
+        now = [0.0]
+        pc = Pacer(44100, clock=lambda: now[0])
+        self.assertEqual(pc.delay(441), 0.0)                      # first chunk: within the allowed lead
+        d = pc.delay(44100 * 2)                                  # 2 s more audio instantly -> must wait
+        self.assertAlmostEqual(d, 2.01 - 0.25, places=2)
+        now[0] = 5.0                                             # long silence (pause): clock restarts
+        self.assertEqual(pc.delay(441), 0.0)
 
     def test_stop_kills_the_receiver_even_while_nothing_is_playing(self):
         p, b, _ = self.make()                                  # idle receiver: stdout is silent

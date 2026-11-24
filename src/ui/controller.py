@@ -64,7 +64,6 @@ class Controller(QObject):
         self.engine_up.emit(True)
         self.client.request("apply_quality", quality=self.settings.quality)
         self.client.request("set_volume", percent=self.settings.volume_percent)
-        self.refresh_sources()
 
     def start_bot(self) -> None:
         """Bot online; the engine then publishes the Spotify Connect device under the bot's name."""

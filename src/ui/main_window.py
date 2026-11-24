@@ -59,7 +59,6 @@ class MainWindow(QMainWindow):
         self._started = False
         self.tray = None
         self._channels: List[dict] = []
-        self._sources: List[dict] = []
         self._bridge = _Bridge()
         self._bridge.finished.connect(lambda err, cb: self._done(err, cb))
         self.setWindowTitle("DiscordSpeaker")
@@ -69,7 +68,6 @@ class MainWindow(QMainWindow):
 
         tabs = QTabWidget()
         tabs.addTab(self._dashboard(), "Dashboard")
-        tabs.addTab(self._devices(), "Devices")
         tabs.addTab(self._settings(), "Settings")
         self.tabs = tabs
         root = QWidget()
@@ -86,7 +84,6 @@ class MainWindow(QMainWindow):
 
         c = self.c
         c.state.connect(self.on_state)
-        c.sources.connect(self.on_sources)
         c.channels.connect(self.on_channels)
         c.message.connect(self.say)
         c.engine_up.connect(self._engine_up)
@@ -164,25 +161,6 @@ class MainWindow(QMainWindow):
         lay.addWidget(self.b_main)
         lay.addStretch(1)
         self._render_idle()
-        return w
-
-    def _devices(self) -> QWidget:
-        w = QWidget(); lay = QVBoxLayout(w); lay.setContentsMargins(0, 12, 0, 0)
-        c = card(); cl = QVBoxLayout(c)
-        cl.addWidget(header("Capture source"))
-        self.src_list = QListWidget()
-        self.src_list.setStyleSheet("QListWidget{background:#1e1f22;border:1px solid #3f4147;border-radius:8px;}"
-                                    "QListWidget::item{padding:8px;} QListWidget::item:selected{background:%s;}" % ACCENT)
-        self.src_list.setAccessibleName("Capture sources")
-        cl.addWidget(self.src_list, 1)
-        row = QHBoxLayout()
-        rf = QPushButton("↻  Refresh devices"); rf.clicked.connect(lambda: self.run(self.c.refresh_sources))
-        use = QPushButton("Use selected source"); use.clicked.connect(self.use_source)
-        row.addWidget(rf); row.addStretch(1); row.addWidget(use)
-        cl.addLayout(row)
-        self.l_out = QLabel(""); self.l_out.setObjectName("sub"); self.l_out.setWordWrap(True)
-        cl.addWidget(self.l_out)
-        lay.addWidget(c, 1)
         return w
 
     def _settings(self) -> QWidget:
@@ -294,7 +272,7 @@ class MainWindow(QMainWindow):
     def boot(self) -> None:
         if not self.c.secrets.has():
             self.say("Add your Discord bot token in Settings to get started.", "warn")
-            self.tabs.setCurrentIndex(2)
+            self.tabs.setCurrentIndex(1)
         elif self.s.auto_stream_on_launch:
             self.start_bot()
         else:
@@ -316,7 +294,7 @@ class MainWindow(QMainWindow):
         if self._busy or self._started:
             return
         if not self.c.secrets.has():
-            self.say("Add your Discord bot token in Settings first.", "warn"); self.tabs.setCurrentIndex(2); return
+            self.say("Add your Discord bot token in Settings first.", "warn"); self.tabs.setCurrentIndex(1); return
         self._started = True
         self.say("Starting…", "info")
         self.run(self.c.start_bot, busy=True)
@@ -342,15 +320,6 @@ class MainWindow(QMainWindow):
     def _vol(self, v: int) -> None:
         self.vol_l.setText(f"{v}%")
         self.c.set_volume(v)
-
-    def use_source(self) -> None:
-        it = self.src_list.currentItem()
-        if not it:
-            return
-        sid = it.data(Qt.UserRole)
-        if not it.data(Qt.UserRole + 1):
-            self.say("That source is unavailable right now.", "warn"); return
-        self.run(self.c.select_source, sid, then=lambda: self.say("Source switched.", "info"))
 
     def save_token(self) -> None:
         tok = self.token.text().strip()
@@ -399,24 +368,6 @@ class MainWindow(QMainWindow):
                 want = i
         self.channel_box.setCurrentIndex(want)
         self.channel_box.blockSignals(False)
-
-    def on_sources(self, srcs: list) -> None:
-        self._sources = srcs
-        self.src_list.clear()
-        chosen = self.s.source_id
-        for s in srcs:
-            label = s["name"] + ("" if s["available"] else "  — unavailable")
-            if s.get("detail"):
-                label += f"\n{s['detail']}"
-            it = QListWidgetItem(label)
-            it.setData(Qt.UserRole, s["id"]); it.setData(Qt.UserRole + 1, s["available"])
-            if not s["available"]:
-                it.setForeground(Qt.gray)
-            self.src_list.addItem(it)
-            if s["id"] == chosen:
-                self.src_list.setCurrentItem(it)
-        if self.src_list.currentRow() < 0 and self.src_list.count():
-            self.src_list.setCurrentRow(0)
 
     def _render_idle(self) -> None:
         self.s_bot.set("todo", "Press Start. The bot logs in and appears in Spotify's device list.")

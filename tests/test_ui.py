@@ -91,15 +91,15 @@ class UiTests(unittest.TestCase):
         self.assertEqual(FakeClient.instances, [])
         self.assertEqual(self.w.b_main.text().strip("▶ ").strip(), "Start")
 
-    def test_start_logs_in_and_loads_sources_and_channels(self):
+    def test_start_logs_in_and_loads_channels_and_there_is_no_devices_tab(self):
         self.w.start_bot(); self.pump(400)
-        self.assertIn("login", self.names()); self.assertIn("list_sources", self.names())
+        self.assertIn("login", self.names())
         login = next(c for c in FakeClient.instances[0].calls if c[0] == "login")
         self.assertEqual(login[1]["token"], "x")
         self.c._on_event(self.state()); self.pump(300)
-        self.assertEqual(self.w.src_list.count(), 2)
         self.assertEqual(self.w.channel_box.count(), 1)
-        self.assertIn("unavailable", self.w.src_list.item(1).text())
+        self.assertEqual(self.w.tabs.count(), 2)
+        self.assertEqual([self.w.tabs.tabText(i) for i in range(2)], ["Dashboard", "Settings"])
 
     def test_setup_steps_follow_engine_state(self):
         self.w._started = True
@@ -132,7 +132,7 @@ class UiTests(unittest.TestCase):
     def test_missing_token_blocks_start_and_points_to_settings(self):
         self.c.secrets.tok = None
         self.w.start_bot(); self.pump(100)
-        self.assertEqual(self.w.tabs.currentIndex(), 2)
+        self.assertEqual(self.w.tabs.currentIndex(), 1)
         self.assertEqual(FakeClient.instances, [])
 
     def test_join_button_sends_join(self):

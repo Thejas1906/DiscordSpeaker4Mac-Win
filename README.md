@@ -41,11 +41,11 @@ switching to call mode cannot degrade the sound. You hear the music in Discord (
 
 > **Needs Spotify Premium.** The receiver is [librespot](https://github.com/librespot-org/librespot), an unofficial client that
 > Spotify's terms do not formally permit. See [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
-> The older "capture any app / the whole system" mode is still available under **Devices → advanced sources**, and the Linux Docker deployment is unchanged.
+> The earlier "capture any app / the whole system" backends still exist in the engine and the Linux Docker deployment is unchanged, but the desktop app is Spotify-only.
 
 ## Compatibility and verification
 
-| Platform | Spotify Connect receiver | Advanced: system/app capture | Verified here |
+| Platform | Spotify Connect receiver | Engine-level system/app capture (no UI) | Verified here |
 | :--- | :--- | :--- | :--- |
 | **macOS** (Apple Silicon & Intel) | ✅ bundled `librespot` | Core Audio tap (14.2+), BlackHole inputs | ✅ Apple Silicon, real hardware: bot online, voice streaming, device advertised via Bonjour; system-tap capture verified. Intel not built here |
 | **Windows 10/11 x64** | ✅ (needs `librespot.exe` at build time) | WASAPI loopback, virtual cables | ⚠️ unit tests on real Windows CI runners, mocked devices; **not run on a Windows desktop** |
@@ -110,7 +110,7 @@ The token is passed at runtime and excluded from Git and the Docker build
 context. Avoid running a second copy of the bot with the same token (the bot refuses to).
 In Docker mode audio comes from the PulseAudio sink: route apps to **Discord Speaker** in pavucontrol, or use `/route_spotify`.
 
-## Advanced: capturing other audio (not Spotify Connect)
+## Capturing other audio (Docker / engine only; the desktop app is Spotify-only)
 
 | | What `/route_app <name>` does |
 | :--- | :--- |
@@ -120,7 +120,7 @@ In Docker mode audio comes from the PulseAudio sink: route apps to **Discord Spe
 
 ### Listen locally
 
-* **Windows / macOS (system or loopback capture, Devices tab):** you keep hearing your audio normally: capture does not mute playback.
+* **Windows / macOS (system or loopback capture, via the engine; no UI):** you keep hearing your audio normally: capture does not mute playback.
 * **Linux:** by default routed audio plays in Discord only. To hear it locally as well:
 
 ```bash
@@ -215,7 +215,7 @@ root filesystem and a small writable `/tmp`.
 - **Friends hear nothing:** make sure they are in the same voice channel as the bot, and that you did not mute the bot *for them*. Check `~/Library/Logs/DiscordSpeaker/engine.jsonl` for `can_encrypt`.
 - **macOS (advanced system capture only): silence:** grant *System Audio Recording*. Input devices need *Microphone*.
 - **macOS: audio stops after sleep or when switching headphones:** the helper re-attaches automatically (default-output change and a 3 s watchdog); if it does not, press Stop/Start.
-- **Windows: nothing is captured:** pick *System audio – default output* on the Devices tab; if your device is exclusive-mode only, disable “Allow applications to take exclusive control”.
+- **Windows (engine-level system capture only): nothing is captured:** if your device is exclusive-mode only, disable “Allow applications to take exclusive control”.
 - **Linux: audio connection refused:** verify pipewire-pulse is running in your desktop
   session and that the runtime directory and UID/GID match. This setup uses
   PipeWire's PulseAudio compatibility server; cookie-authenticated standalone

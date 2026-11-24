@@ -19,6 +19,7 @@ import subprocess
 import sys
 import tempfile
 import threading
+import time
 from collections import deque
 from pathlib import Path
 from typing import Optional
@@ -74,6 +75,29 @@ _AUTH = re.compile(r"Authenticated as '(.+?)'")
 _CONNECTED = re.compile(r"(Connecting|Connected) to .*(AP|accesspoint)|Authenticated as", re.I)
 
 
+class Pacer:
+    """Holds the reader to real time. librespot's pipe sink has no audio clock: it writes decoded audio as fast as
+    it is read (many times faster than real time), so unpaced reading makes songs run fast, overflows the buffer
+    and glitches. Not reading makes librespot block on the full pipe, i.e. it plays in real time."""
+
+    LEAD = 0.25     # seconds of burst allowed (librespot pre-buffers at track start)
+    GAP = 0.5       # a silence this long (pause / seek) restarts the clock
+
+    def __init__(self, rate: int, clock=time.monotonic):
+        self.rate, self.clock = rate, clock
+        self.t0 = None
+        self.n = 0
+        self.last = 0.0
+
+    def delay(self, frames: int) -> float:
+        now = self.clock()
+        if self.t0 is None or now - self.last > self.GAP:
+            self.t0, self.n = now, 0
+        self.n += frames
+        self.last = now
+        return max(0.0, self.n / self.rate - (now - self.t0) - self.LEAD)
+
+
 def build_command(binary: str, device_name: str, cache_dir: str, bitrate: int = 320) -> list:
     return [binary, "--name", device_name, "--backend", "pipe", "--format", "F32", "--bitrate", str(bitrate),
             "--cache", cache_dir, "--disable-audio-cache", "--device-type", "speaker",
@@ -110,6 +134,7 @@ def run(backend, src: CaptureSource, stop: threading.Event) -> None:
 
     threading.Thread(target=read_stderr, name="librespot-log", daemon=True).start()
     carry = b""
+    pacer = Pacer(RATE)
     try:
         while not stop.is_set():
             data = proc.stdout.read(RATE // 100 * BYTES_PER_FRAME)       # ~10 ms, blocks while paused
@@ -120,6 +145,9 @@ def run(backend, src: CaptureSource, stop: threading.Event) -> None:
             carry = data[usable:]
             if usable:
                 backend.pipeline.push(np.frombuffer(data[:usable], dtype="<f4").reshape(-1, CHANNELS), RATE)
+                wait = pacer.delay(usable // BYTES_PER_FRAME)
+                if wait:
+                    stop.wait(wait)
         if not stop.is_set():
             tail = " | ".join(list(st.log_tail)[-3:])
             raise DeviceUnavailableError(f"Spotify Connect receiver exited ({proc.poll()}): {tail}"[:300])
