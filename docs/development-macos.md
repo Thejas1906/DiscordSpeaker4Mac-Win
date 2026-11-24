@@ -28,8 +28,12 @@ after a JSON header on stderr. `capture --pid N…` taps only those processes; `
 
 ### Verification status
 
-On the development Mac (Apple Silicon): the helper builds, creates the tap and aggregate device without error and streams frames at the right rate; the packaged app launches, its engine child starts and is reaped when the app is killed.
-**Audible content through the tap was not confirmed** because the session running the tests did not have System Audio Recording permission (the hardware test reported digital silence). After granting permission to your terminal, run the hardware test: it plays 440 Hz left / 880 Hz right with `afplay` and asserts the captured peaks.
+On an Apple Silicon Mac (macOS 27, Bluetooth headphones at 44.1 kHz) the hardware test passes: the system tap captured `afplay` output with 440 Hz on the left and 880 Hz on the right. That test exposed a real bug
+(the tap advertised 48 kHz while the device ran at 44.1 kHz, pitch-shifting audio), now fixed by reporting the device's real rate. The packaged app launches, its engine child starts and is reaped when the app is killed.
+Not verified on hardware: per-app taps, BlackHole/input capture, sleep/wake, Intel Macs, Developer ID signing and notarization.
+
+Run it yourself (from a terminal that has System Audio Recording permission):
+`DS_HARDWARE_TESTS=1 .venv/bin/python -m unittest tests.test_hardware -v`
 
 ## BlackHole (optional)
 

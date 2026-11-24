@@ -52,7 +52,7 @@ and stops everything with one click; on Linux a headless Docker deployment is st
 | :--- | :--- | :--- | :---: | :--- |
 | **Linux** (PipeWire / PulseAudio) | Virtual sink monitor via `parec` (float32) | Yes, move streams into the sink | ✅ | ✅ real PulseAudio daemon in Docker: routing, 440/880 Hz stereo fidelity (119 dB separation), recovery, clean shutdown |
 | **Windows 10/11 x64** | WASAPI loopback of any output; any capture endpoint incl. VB-Audio Cable | No (see [limitations](#known-limitations)) | ✅ | ⚠️ mocked WASAPI only. **Not run on Windows.** |
-| **macOS 14.2+** (Apple Silicon & Intel) | Core Audio **process tap** via bundled `dsaudiotap` helper (no driver) | Yes | ✅ | ⚠️ App + DMG built and launched on Apple Silicon, helper starts a tap and streams frames at 48 kHz, but **audible content was not confirmed** (macOS permission not granted in the test session) |
+| **macOS 14.2+** (Apple Silicon & Intel) | Core Audio **process tap** via bundled `dsaudiotap` helper (no driver) | Yes | ✅ | ✅ Apple Silicon, real hardware: system tap captured a 440 Hz (L) / 880 Hz (R) tone at the right pitch and channels (Bluetooth output at 44.1 kHz). App + DMG built and launched. Per-app capture, BlackHole, sleep/wake and Intel not run on hardware |
 | **macOS 12–14.1** | Input device capture (BlackHole, Loopback…) | No | ✅ | ⚠️ mocked |
 
 Nothing in this table is claimed beyond what is stated. Tests that need real hardware are in
@@ -274,7 +274,7 @@ protocol operations. Desktop audio must remain available while streaming.
 * **Idle loopback streams** (Windows/macOS) deliver no samples while nothing plays; Discord receives silence.
 * **Local monitoring of virtual-cable sources** is not provided on Windows/macOS (system/loopback capture is audible anyway); Linux monitoring uses PipeWire loopback.
 * **Windows and macOS builds are not notarized/code-signed by default**; see the development guides to sign them.
-* **Real-device verification** on Windows and real audio on macOS are pending: see [Compatibility](#compatibility-and-verification).
+* **Real-device verification** on Windows and per-app/BlackHole/Intel on macOS are pending: see [Compatibility](#compatibility-and-verification).
 * The VPS case from the original project still needs its own audio source: the app captures a *desktop* session.
 
 ## Development

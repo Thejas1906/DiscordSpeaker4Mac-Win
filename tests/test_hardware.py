@@ -42,7 +42,7 @@ class MacTapHardware(unittest.TestCase):
             end = time.time() + 3
             while time.time() < end:
                 time.sleep(0.02); out.append(p.read_frame())
-            pl.terminate(); b.stop()
+            pl.terminate(); pl.wait(); b.stop()
         y = np.concatenate(out)
         self.assertEqual(p.health.input_rate in (44100, 48000, 96000), True)
         self.assertGreater(float(np.abs(y).max()), 0.01,
