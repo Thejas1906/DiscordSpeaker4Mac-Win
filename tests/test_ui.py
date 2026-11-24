@@ -70,7 +70,7 @@ class UiTests(unittest.TestCase):
 
     def state(self, audio="stopped", voice=None, logged=True, **extra):
         a = dict(state=audio, peak=0.5, rms=0.2, input_rate=44100, input_channels=2, latency_ms=140.0, underruns=0,
-                 overruns=0, drift_corrections=0, clipped_samples=0, selected="a", last_error="", silent_s=0)
+                 overruns=0, drift_corrections=0, clipped_samples=0, frames_out=96000, selected="a", last_error="", silent_s=0)
         a.update(extra)
         return {"event": "state", "audio": a, "discord": {"logged_in": logged, "user": "bot#1", "latency_ms": 30, "voice": voice or []}}
 

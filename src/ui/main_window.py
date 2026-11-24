@@ -426,7 +426,7 @@ class MainWindow(QMainWindow):
         else:
             self.l_fmt.setText("48,000 Hz · stereo")
         self.l_lat.setText(f"{a['latency_ms']:.0f} ms" if cs == "running" else "—")
-        self.l_health.setText(f"{a['underruns']} underruns · {a['overruns']} overruns · {a['drift_corrections']} drift fixes · {a['clipped_samples']} clipped")
+        self.l_health.setText(f"{a['underruns']} underruns · {a['overruns']} overruns · {a['drift_corrections']} drift fixes · {a['clipped_samples']} clipped · {a['frames_out'] // 48000} s sent")
         self.l_hint.setText(
             "No signal reaching the app. If audio is playing, check the capture source"
             + (" and the macOS ‘System Audio Recording’ permission (README → macOS)." if sys.platform == "darwin" else ".")

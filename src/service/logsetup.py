@@ -67,4 +67,6 @@ def setup(component: str, level: int = logging.INFO, stream=sys.stderr) -> Path:
         sh.addFilter(RedactFilter())
         root.addHandler(sh)
     logging.getLogger("discord").setLevel(logging.WARNING)
+    logging.getLogger("discord.voice_state").setLevel(logging.INFO)   # connect/DAVE/reconnect diagnostics
+    logging.getLogger("discord.voice_client").setLevel(logging.INFO)
     return path

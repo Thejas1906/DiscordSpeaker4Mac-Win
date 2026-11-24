@@ -54,6 +54,8 @@ FAKE_STREAMER = textwrap.dedent('''\
         sys.stderr.write(json.dumps({"rate": rate, "channels": 2, "format": "f32le"}) + "\\n"); sys.stderr.flush()
     if mode == "perm":
         sys.exit(2)
+    if mode == "silent":                      # e.g. a per-app tap while that app is paused: no data at all
+        time.sleep(600)
     gains = [float(g) for g in os.environ.get("FAKE_GAINS", "1,1").split(",")]
     exit_after = float(os.environ.get("FAKE_EXIT_AFTER", "0"))
     exit_code = int(os.environ.get("FAKE_EXIT_CODE", "0"))
@@ -226,6 +228,19 @@ class MacBackendTests(TmpDirCase):
         self.assertIn("System Audio Recording", p.health.last_error)
         time.sleep(0.5)
         self.assertEqual(p.health.restarts, 0, "must not retry-loop on a permission error")
+
+    def test_stop_and_source_switch_are_prompt_even_when_tap_delivers_no_data(self):
+        """Regression: select_source timed out because stop() waited on a blocking read from a silent tap."""
+        p, b, _ = self.make(FAKE_MODE="silent")
+        b.start("tap:system")
+        self.assertTrue(wait_for(lambda: b._proc is not None))
+        pid = b._proc.pid
+        t0 = time.time()
+        b.select_source("input:BlackHole 2ch")                 # stop old capture, start the new one
+        self.assertLess(time.time() - t0, 3.0)
+        self.assertTrue(wait_for(lambda: not pid_alive(pid), 3), "helper left running")
+        self.assertTrue(wait_for(lambda: b.state == CaptureState.RUNNING))
+        b.stop()
 
     def test_default_output_change_restarts_capture(self):
         p, b, ev = self.make(FAKE_EXIT_AFTER="0.4", FAKE_EXIT_CODE="75")

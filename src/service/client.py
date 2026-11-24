@@ -89,6 +89,8 @@ class EngineClient:
     def request(self, cmd: str, timeout: float = 15.0, **args) -> Any:
         if not self.alive:
             raise EngineError("engine is not running")
+        if "id" in args or "cmd" in args:
+            raise ValueError("'id' and 'cmd' are reserved envelope fields; pick another argument name")
         rid = next(self._ids)
         slot = {"ev": threading.Event(), "msg": None}
         with self._lock:

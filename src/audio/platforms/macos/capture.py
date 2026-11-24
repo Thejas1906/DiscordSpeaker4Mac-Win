@@ -215,6 +215,18 @@ class MacOSCapture(CaptureBackend):
             raise DeviceUnavailableError("the selected application is not producing audio")
         raise DeviceUnavailableError(f"capture helper exited ({code}) {msg}".strip())
 
+    def stop(self, timeout: float = 5.0) -> None:
+        """Interrupt the helper first: a per-app tap is silent while that app is paused, so the reader
+        would otherwise sit in a blocking read and stop()/select_source() would stall."""
+        self._stop.set()
+        p = self._proc
+        if p is not None and p.poll() is None:
+            try:
+                p.send_signal(signal.SIGTERM)      # EOF unblocks the reader thread
+            except Exception:
+                pass
+        super().stop(timeout)
+
     def _read_exact(self, proc, n, stop) -> Optional[bytes]:
         buf = bytearray()
         while len(buf) < n:

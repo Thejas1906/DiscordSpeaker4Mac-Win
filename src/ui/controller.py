@@ -97,7 +97,7 @@ class Controller(QObject):
         self.settings.source_id = source_id
         self.settings.save()
         if self.client and self.client.alive:
-            self.client.request("select_source", id=source_id, timeout=20)
+            self.client.request("select_source", source_id=source_id, timeout=20)
 
     def set_volume(self, percent: int) -> None:
         self.settings.volume_percent = percent

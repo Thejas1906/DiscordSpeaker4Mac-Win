@@ -98,8 +98,9 @@ class Engine:
                     out.append({"guild_id": g.id, "guild": g.name, "channel_id": ch.id, "channel": ch.name})
         return out
 
-    async def cmd_select_source(self, id: str):
-        await self.loop.run_in_executor(None, self.audio.select_source, id)
+    async def cmd_select_source(self, source_id: str):
+        # (named source_id: a keyword called "id" would collide with the request id in the JSON envelope)
+        await self.loop.run_in_executor(None, self.audio.select_source, source_id)
         return True
 
     def cmd_set_volume(self, percent: int):

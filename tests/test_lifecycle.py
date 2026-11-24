@@ -198,6 +198,13 @@ class EngineProcessTests(unittest.TestCase):
         with self.assertRaises(EngineError):
             self.client.request("apply_quality", quality={"buffer_ms": 1})
 
+    def test_select_source_roundtrip_and_reserved_names(self):
+        """Regression: an argument named 'id' overwrote the request id (select_source never got a reply)."""
+        self.client.start()
+        with self.assertRaises(ValueError):
+            self.client.request("select_source", id="x")
+        self.assertTrue(self.client.request("select_source", source_id="tap:system", timeout=20) is True)
+
     def test_join_without_discord_is_a_clean_error(self):
         self.client.start()
         with self.assertRaises(EngineError) as cm:
