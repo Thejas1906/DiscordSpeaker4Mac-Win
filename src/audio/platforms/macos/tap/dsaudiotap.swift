@@ -126,7 +126,9 @@ func cleanup() {
 }
 
 guard let asbd = getScalar(tapID, kAudioTapPropertyFormat, AudioStreamBasicDescription()) else { cleanup(); die("cannot read tap format", 1) }
-let rate = Int(asbd.mSampleRate)
+// The IOProc delivers at the aggregate device's clock (the output device's rate), which can differ from
+// the tap's advertised format (e.g. 44.1 kHz Bluetooth output vs a 48 kHz tap format). Trust the device.
+let rate = Int(getScalar(aggID, kAudioDevicePropertyNominalSampleRate, Float64(0)) ?? asbd.mSampleRate)
 let tapCh = max(1, Int(asbd.mChannelsPerFrame))
 err("{\"rate\":\(rate),\"channels\":2,\"format\":\"f32le\"}")
 
@@ -179,6 +181,12 @@ for sig in [SIGTERM, SIGINT] {
 var defAddr = addr(kAudioHardwarePropertyDefaultOutputDevice)
 AudioObjectAddPropertyListenerBlock(AudioObjectID(kAudioObjectSystemObject), &defAddr, .main) { _, _ in
     err("{\"event\":\"default-output-changed\"}"); cleanup(); exit(75)
+}
+
+// Output device changed sample rate while capturing: restart so the Python side learns the new rate.
+var rateAddr = addr(kAudioDevicePropertyNominalSampleRate)
+AudioObjectAddPropertyListenerBlock(aggID, &rateAddr, .main) { _, _ in
+    err("{\"event\":\"sample-rate-changed\"}"); cleanup(); exit(75)
 }
 
 st = AudioDeviceStart(aggID, procID)
