@@ -60,6 +60,19 @@ class OpusTests(unittest.TestCase):
         self.assertGreater(snr[128], 20)
 
 
+class DaveCompatibility(unittest.TestCase):
+    def test_davey_matches_what_discordpy_drives(self):
+        """discord.py 2.7.x calls process_commit/process_welcome only. davey 0.2.x requires an extra
+        execute_transition() call, otherwise the session never becomes ready and the bot is inaudible
+        (can_encrypt stays False). See src/requirements.txt."""
+        try:
+            import davey
+        except ImportError:
+            self.skipTest("davey not installed")
+        self.assertFalse(hasattr(davey.DaveSession, "execute_transition"),
+                         "davey >= 0.2 is incompatible with this discord.py: pin davey>=0.1.5,<0.2")
+
+
 @unittest.skipUnless(HAVE_OPUS, "libopus not available")
 class DiscordPlayerIntegration(unittest.TestCase):
     """Drive discord.py's real AudioPlayer thread with our Opus source, using a fake voice client."""
