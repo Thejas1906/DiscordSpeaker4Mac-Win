@@ -8,6 +8,7 @@ bash -n src/audio_ctl.sh
 python src/app.py                                           # desktop controller
 ```
 
+* Spotify Connect mode needs `librespot` on PATH (distro package or `cargo install librespot`).
 * Runtime tools: `pactl`, `parec` (pulseaudio-utils), optional `ffmpeg` fallback, libopus (`libopus0`), a Secret Service keyring for the token.
 * Qt on a headless box: `QT_QPA_PLATFORM=offscreen`.
 

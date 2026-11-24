@@ -456,3 +456,120 @@ class WindowsBackendTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+FAKE_LIBRESPOT = textwrap.dedent('''\
+    import os, sys, time
+    import numpy as np
+    argv = sys.argv[1:]
+    log = os.environ.get("FAKE_LOG")
+    if log:
+        open(log, "a").write(" ".join(argv) + "\\n")
+    sys.stderr.write("[INFO  librespot_playback::audio_backend::pipe] Using StdoutSink (pipe) with format: F32\\n"); sys.stderr.flush()
+    if os.environ.get("FAKE_EXIT_AFTER"):
+        time.sleep(float(os.environ["FAKE_EXIT_AFTER"])); sys.exit(1)
+    if os.environ.get("FAKE_PLAY") != "1":
+        time.sleep(600)
+    time.sleep(0.3)
+    sys.stderr.write("[INFO  librespot_core::session] Authenticated as 'tester'\\n")
+    sys.stderr.write("[INFO  librespot_playback::player] Loading <Blinding Lights> with Spotify URI <spotify:track:1>\\n"); sys.stderr.flush()
+    rate, n, t0 = 44100, 0, time.time()
+    while True:
+        blk = rate // 100
+        t = (n + np.arange(blk)) / rate
+        x = np.stack([0.5 * np.sin(2 * np.pi * 440 * t), 0.5 * np.sin(2 * np.pi * 880 * t)], 1).astype("<f4")
+        try:
+            sys.stdout.buffer.write(x.tobytes()); sys.stdout.buffer.flush()
+        except BrokenPipeError:
+            sys.exit(0)
+        n += blk
+        time.sleep(max(0, t0 + n / rate - time.time()))
+''')
+
+
+class NullBackend:
+    """Minimal OS backend: exposes no OS sources, so only the Spotify Connect source exists."""
+
+    @staticmethod
+    def make(pipeline, events):
+        from audio.base import CaptureBackend
+
+        class Null(CaptureBackend):
+            platform = "test"
+            def list_devices(self): return []
+            def list_sources(self): return []
+            def _run_capture(self, source, stop): stop.wait()
+        return Null(pipeline, events.append)
+
+
+@POSIX
+class SpotifyConnectTests(TmpDirCase):
+    def make(self, **env):
+        py = self.dir / "librespot.py"
+        py.write_text(FAKE_LIBRESPOT)
+        exe = self.dir / "librespot"
+        exe.write_text(f'#!/bin/sh\nexec "{sys.executable}" "{py}" "$@"\n')
+        exe.chmod(exe.stat().st_mode | stat.S_IEXEC)
+        envp = patch.dict(os.environ, {"DS_LIBRESPOT": str(exe), **env}); envp.start(); self.addCleanup(envp.stop)
+        p = AudioPipeline(QualityConfig(buffer_ms=80)); ev = []
+        b = NullBackend.make(p, ev)
+        b.device_name = "Music Speaker"
+        b.spotify_cache_dir = str(self.dir / "cache")
+        b.RETRY_DELAYS = (0.1,)
+        self.addCleanup(b.stop)
+        return p, b, ev
+
+    def test_source_is_listed_first_and_is_the_default(self):
+        _, b, _ = self.make()
+        srcs = b.all_sources()
+        self.assertEqual(srcs[0].id, "spotify:connect"); self.assertTrue(srcs[0].available)
+        self.assertEqual(b.default_source().id, "spotify:connect")
+
+    def test_unavailable_when_librespot_is_missing_and_start_fails_fast_with_instructions(self):
+        p, b, ev = self.make()
+        with patch("audio.spotify_connect.find_librespot", return_value=None):
+            self.assertFalse(b.all_sources()[0].available)
+            b._source_id = "spotify:connect"
+            b.start("spotify:connect")
+            self.assertTrue(wait_for(lambda: b.state == CaptureState.ERROR))
+            self.assertIn("librespot", p.health.last_error)
+            time.sleep(0.4)
+            self.assertEqual(p.health.restarts, 0, "a missing binary must not be retried forever")
+
+    def test_device_is_published_under_the_bot_name_and_receiver_goes_live(self):
+        log = self.dir / "args.log"
+        p, b, _ = self.make(FAKE_LOG=str(log))
+        b.start()
+        self.assertTrue(wait_for(lambda: b.state == CaptureState.RUNNING))
+        args = log.read_text()
+        self.assertIn("--name Music Speaker", args)
+        self.assertIn("--backend pipe", args); self.assertIn("--format F32", args); self.assertIn("--bitrate 320", args)
+        self.assertEqual(b.spotify.device_name, "Music Speaker")
+
+    def test_playing_audio_reaches_the_pipeline_with_channels_intact_and_track_name_is_parsed(self):
+        p, b, _ = self.make(FAKE_PLAY="1")
+        b.start()
+        self.assertTrue(wait_for(lambda: p.health.frames_in > 44100 * 1.2, 8))
+        self.assertEqual((p.health.input_rate, p.health.input_channels), (44100, 2))
+        self.assertEqual(b.spotify.now_playing, "Blinding Lights"); self.assertEqual(b.spotify.user, "tester")
+        y = np.concatenate([(time.sleep(0.02), p.read_frame())[1] for _ in range(60)])[12000:]
+        f = np.fft.rfftfreq(len(y), 1 / 48000)
+        sp = lambda c: np.abs(np.fft.rfft(y[:, c] * np.hanning(len(y))))
+        self.assertAlmostEqual(f[sp(0).argmax()], 440, delta=4)
+        self.assertAlmostEqual(f[sp(1).argmax()], 880, delta=4)
+
+    def test_stop_kills_the_receiver_even_while_nothing_is_playing(self):
+        p, b, _ = self.make()                                  # idle receiver: stdout is silent
+        b.start()
+        self.assertTrue(wait_for(lambda: b.state == CaptureState.RUNNING))
+        pid = b._proc.pid
+        t0 = time.time(); b.stop()
+        self.assertLess(time.time() - t0, 4)
+        self.assertTrue(wait_for(lambda: not pid_alive(pid), 3), "librespot left running")
+
+    def test_crash_is_reported_and_receiver_restarts(self):
+        p, b, ev = self.make(FAKE_EXIT_AFTER="0.5")
+        b.start()
+        self.assertTrue(wait_for(lambda: p.health.restarts >= 1, 8))
+        self.assertIn("disconnected", [e.kind for e in ev])
+        self.assertIn("Spotify Connect receiver exited", p.health.last_error + "".join(e.message for e in ev))

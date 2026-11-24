@@ -66,6 +66,16 @@ class AudioService:
     def sources(self) -> List[Dict]:
         return self.devices.refresh()
 
+    def configure_spotify(self, device_name: Optional[str] = None, cache_dir: Optional[str] = None,
+                          make_default: bool = True) -> None:
+        """Name of the Spotify Connect device (the bot's name) and where librespot keeps its credentials."""
+        if device_name:
+            self.backend.device_name = device_name
+        if cache_dir:
+            self.backend.spotify_cache_dir = cache_dir
+        if make_default:
+            self.backend.default_source_id = "spotify:connect"
+
     def devices_list(self) -> List[Dict]:
         return [d.to_dict() for d in self.backend.list_devices()]
 
@@ -90,6 +100,6 @@ class AudioService:
 
     def status(self) -> Dict:
         h = self.pipeline.health.to_dict()
-        h.update(platform=self.platform, selected=self.devices.selected or self.backend.source_id,
+        h.update(spotify=self.backend.spotify.as_dict(), platform=self.platform, selected=self.devices.selected or self.backend.source_id,
                  volume=self.volume_percent, supports_app_capture=self.backend.supports_app_capture)
         return h

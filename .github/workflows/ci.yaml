@@ -86,7 +86,7 @@ jobs:
         env:
           QT_QPA_PLATFORM: offscreen
         run: |
-          brew install opus
+          brew install opus librespot
           python -m pip install -r src/requirements-build.txt
           packaging/build_macos.sh
           dist/DiscordSpeaker.app/Contents/MacOS/DiscordSpeaker --selftest
@@ -96,7 +96,8 @@ jobs:
         env:
           QT_QPA_PLATFORM: offscreen
         run: |
-          choco install innosetup -y --no-progress
+          choco install innosetup rust -y --no-progress
+          $env:PATH += ";$env:USERPROFILE\.cargo\bin"
           powershell -ExecutionPolicy Bypass -File packaging\build_windows.ps1
       - uses: actions/upload-artifact@v4
         with:

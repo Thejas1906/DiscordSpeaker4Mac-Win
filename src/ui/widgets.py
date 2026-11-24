@@ -76,3 +76,42 @@ class StatusPill(QWidget):
         self._val.setText(text)
         self._dot.setStyleSheet(f"color: {color}; background: transparent;")
         self.setAccessibleName(f"{self._title.text()}: {text}")
+
+
+class StepRow(QWidget):
+    """One numbered setup step: status dot, title, live detail text and an optional action button."""
+
+    def __init__(self, number: int, title: str, action_text: str = ""):
+        super().__init__()
+        from PySide6.QtWidgets import QPushButton, QVBoxLayout
+        self.badge = QLabel(str(number))
+        self.badge.setFixedSize(28, 28)
+        self.badge.setAlignment(Qt.AlignCenter)
+        self.title = QLabel(title)
+        self.title.setStyleSheet("font-weight: 600; background: transparent;")
+        self.detail = QLabel("")
+        self.detail.setObjectName("sub")
+        self.detail.setWordWrap(True)
+        self.detail.setStyleSheet("color: #949ba4; background: transparent;")
+        self.button = QPushButton(action_text) if action_text else None
+        col = QVBoxLayout()
+        col.setSpacing(1)
+        col.addWidget(self.title)
+        col.addWidget(self.detail)
+        row = QHBoxLayout(self)
+        row.setContentsMargins(0, 4, 0, 4)
+        row.setSpacing(12)
+        row.addWidget(self.badge, 0, Qt.AlignTop)
+        row.addLayout(col, 1)
+        if self.button:
+            row.addWidget(self.button, 0, Qt.AlignVCenter)
+        self.set("todo", "")
+
+    def set(self, state: str, detail: str) -> None:
+        """state: todo | active | done | error"""
+        bg, fg = {"todo": ("#3a3c42", "#949ba4"), "active": (WARN, "#1e1f22"), "done": (GOOD, "white"),
+                  "error": (BAD, "white")}[state]
+        self.badge.setText("✓" if state == "done" else ("!" if state == "error" else self.badge.text().strip("✓!") or "•"))
+        self.badge.setStyleSheet(f"background: {bg}; color: {fg}; border-radius: 14px; font-weight: 700;")
+        self.detail.setText(detail)
+        self.setAccessibleName(f"{self.title.text()}: {detail}")

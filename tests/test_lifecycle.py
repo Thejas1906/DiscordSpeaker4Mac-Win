@@ -82,6 +82,15 @@ class SettingsAndSecrets(unittest.TestCase):
             p.write_text(json.dumps({"quality": {"buffer_ms": 5}}))
             self.assertEqual(AppSettings.load(p).quality_config().buffer_ms, 120)   # invalid -> defaults
 
+    def test_old_settings_migrate_to_spotify_connect_default(self):
+        with tempfile.TemporaryDirectory() as d:
+            p = Path(d) / "s.json"
+            p.write_text(json.dumps({"source_id": "tap:app:Spotify", "volume_percent": 90}))   # v1 file, no schema
+            s = AppSettings.load(p)
+            self.assertEqual((s.source_id, s.volume_percent, s.schema), ("", 90, 2))
+            s.source_id = "tap:system"; s.save(p)
+            self.assertEqual(AppSettings.load(p).source_id, "tap:system")                      # explicit v2 choice kept
+
     def test_quality_defaults_are_music_safe(self):
         c = QualityConfig()
         self.assertEqual((c.volume, c.limiter), (1.0, True))

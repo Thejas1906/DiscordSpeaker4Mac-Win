@@ -74,19 +74,76 @@ class UiTests(unittest.TestCase):
         a.update(extra)
         return {"event": "state", "audio": a, "discord": {"logged_in": logged, "user": "bot#1", "latency_ms": 30, "voice": voice or []}}
 
-    def test_boot_connects_loads_sources_and_channels(self):
+    def state(self, audio="running", voice=None, logged=True, guilds=1, spotify=None, **extra):
+        a = dict(state=audio, peak=0.5, rms=0.2, input_rate=44100, input_channels=2, latency_ms=140.0, underruns=0,
+                 overruns=0, drift_corrections=0, clipped_samples=0, frames_out=96000, selected="spotify:connect",
+                 last_error="", silent_s=0,
+                 spotify=spotify or {"device_name": "Music Speaker", "now_playing": "", "user": "", "connected": False})
+        a.update(extra)
+        return {"event": "state", "audio": a, "discord": {"logged_in": logged, "name": "Music Speaker", "user": "Music Speaker#1",
+                                                          "user_id": 42, "latency_ms": 30, "guilds": guilds, "voice": voice or []}}
+
+    def names(self):
+        return [c[0] for i in FakeClient.instances for c in i.calls]
+
+    def test_nothing_starts_until_the_user_presses_start(self):
         self.pump()
-        calls = [c[0] for c in FakeClient.instances[0].calls]
-        self.assertIn("login", calls); self.assertIn("list_sources", calls)
-        self.c._on_event(self.state()); self.pump(100)
+        self.assertEqual(FakeClient.instances, [])
+        self.assertEqual(self.w.b_main.text().strip("▶ ").strip(), "Start")
+
+    def test_start_logs_in_and_loads_sources_and_channels(self):
+        self.w.start_bot(); self.pump(400)
+        self.assertIn("login", self.names()); self.assertIn("list_sources", self.names())
+        login = next(c for c in FakeClient.instances[0].calls if c[0] == "login")
+        self.assertEqual(login[1]["token"], "x")
+        self.c._on_event(self.state()); self.pump(300)
         self.assertEqual(self.w.src_list.count(), 2)
         self.assertEqual(self.w.channel_box.count(), 1)
         self.assertIn("unavailable", self.w.src_list.item(1).text())
 
+    def test_setup_steps_follow_engine_state(self):
+        self.w._started = True
+        self.c._on_event(self.state(guilds=0, audio="running")); self.pump(50)
+        self.assertIn("Not in any server", self.w.s_server.detail.text())
+        self.assertTrue(self.w.s_server.button.isVisibleTo(self.w) or self.w.s_server.button.isEnabled())
+        self.c._on_event(self.state(guilds=1)); self.pump(50)
+        self.assertIn("In 1 server", self.w.s_server.detail.text())
+        self.assertIn("Connect to a device", self.w.s_spotify.detail.text())
+        self.assertIn("“Music Speaker”", self.w.s_spotify.detail.text())
+        self.c._on_event(self.state(spotify={"device_name": "Music Speaker", "now_playing": "Blinding Lights", "user": "me", "connected": True}))
+        self.pump(50)
+        self.assertIn("Now playing: Blinding Lights", self.w.s_spotify.detail.text())
+        self.c._on_event(self.state(voice=[{"guild": "G", "channel": "Music", "playing": True}])); self.pump(50)
+        self.assertIn("Streaming in Music", self.w.s_voice.detail.text())
+        self.assertEqual(self.w.b_main.text().strip("■ ").strip(), "Stop")
+        self.assertAlmostEqual(self.w.meter.peak, 0.5)
+
+    def test_receiver_errors_are_visible(self):
+        self.w._started = True
+        self.c._on_event(self.state(audio="error", last_error="Spotify Connect needs 'librespot'")); self.pump(50)
+        self.assertIn("librespot", self.w.s_spotify.detail.text())
+
+    def test_stop_shuts_the_engine_down(self):
+        self.w.start_bot(); self.pump(400)
+        self.w.stop_bot(); self.pump(400)
+        self.assertEqual(FakeClient.instances[0].calls[-1], ("stop",))
+        self.assertFalse(self.w._started)
+
+    def test_missing_token_blocks_start_and_points_to_settings(self):
+        self.c.secrets.tok = None
+        self.w.start_bot(); self.pump(100)
+        self.assertEqual(self.w.tabs.currentIndex(), 2)
+        self.assertEqual(FakeClient.instances, [])
+
+    def test_join_button_sends_join(self):
+        self.w.start_bot(); self.pump(300); self.c._on_event(self.state()); self.pump(300)
+        self.w.join_channel(); self.pump(300)
+        self.assertIn(("join", {"guild_id": 1, "channel_id": 2}), [(c[0], c[1]) for c in FakeClient.instances[0].calls if c[0] == "join"])
+
     def test_channel_refresh_triggered_from_event_does_not_deadlock(self):
         """Regression: refresh_channels() ran on the engine-reader thread and timed out waiting for its own reply."""
         import threading
-        self.pump()
+        self.w.start_bot(); self.pump(300)
         seen = {}
         orig = FakeClient.request
         def request(self, cmd, timeout=0, **a):
@@ -100,50 +157,18 @@ class UiTests(unittest.TestCase):
         self.assertIsNot(seen["thread"], threading.current_thread(), "must not run inline on the event thread")
         self.assertEqual(self.w.channel_box.count(), 1)
 
-    def test_status_widgets_and_button_states_follow_engine_state(self):
-        self.pump(); self.c._on_event(self.state()); self.pump(50)
-        self.assertTrue(self.w.b_start.isEnabled()); self.assertFalse(self.w.b_stop.isEnabled())
-        self.c._on_event(self.state("running", voice=[{"guild": "G", "channel": "General", "playing": True}])); self.pump(50)
-        self.assertFalse(self.w.b_start.isEnabled()); self.assertTrue(self.w.b_stop.isEnabled())
-        self.assertIn("44,100 Hz →", self.w.l_fmt.text())
-        self.assertAlmostEqual(self.w.meter.peak, 0.5)
-
-    def test_start_and_stop_send_expected_engine_commands(self):
-        self.pump(); self.c._on_event(self.state()); self.pump(100)
-        self.w.start_stream(); self.pump(500)
-        calls = FakeClient.instances[0].calls
-        self.assertIn("start_capture", [c[0] for c in calls])
-        self.assertIn(("join", {"guild_id": 1, "channel_id": 2}), [(c[0], c[1]) for c in calls if c[0] == "join"])
-        self.c._on_event(self.state("running")); self.pump(50)
-        self.w.stop_stream(); self.pump(500)
-        names = [c[0] for c in FakeClient.instances[0].calls]
-        self.assertEqual(names[-2:], ["leave", "stop_capture"])
-
-    def test_missing_token_blocks_start_and_points_to_settings(self):
-        self.c.secrets.tok = None
-        self.w.start_stream(); self.pump(100)
-        self.assertEqual(self.w.tabs.currentIndex(), 2)
-        self.assertNotIn("start_capture", [c[0] for i in FakeClient.instances for c in i.calls])
-
-    def test_silence_hint_and_error_states(self):
-        self.pump()
-        self.c._on_event(self.state("running", silent_s=12.0)); self.pump(50)
-        self.assertIn("No signal", self.w.l_hint.text())
-        self.c._on_event(self.state("error", last_error="macOS blocked audio capture")); self.pump(50)
-        self.assertIn("macOS blocked", self.w.p_capture._val.text())
-
-    def test_close_while_streaming_hides_to_tray_else_quits_and_stops_engine(self):
-        self.pump(); self.c._on_event(self.state("running")); self.pump(50)
+    def test_close_while_running_hides_to_tray_else_quits_and_stops_engine(self):
+        self.w.start_bot(); self.pump(300)
         if self.w.tray is None:
             self.skipTest("no system tray in this environment")
         self.w.show(); self.w.close(); self.pump(50)
         self.assertFalse(self.w.isVisible()); self.assertFalse(self.w._quitting)
-        self.c._on_event(self.state("stopped")); self.w.show(); self.w.close(); self.pump(50)
+        self.w._started = False; self.w.show(); self.w.close(); self.pump(50)
         self.assertTrue(self.w._quitting)
         self.assertEqual(FakeClient.instances[0].calls[-1], ("stop",))
 
     def test_quit_shuts_engine_down(self):
-        self.pump(); self.w.quit_app()
+        self.w.start_bot(); self.pump(300); self.w.quit_app()
         self.assertEqual(FakeClient.instances[0].calls[-1], ("stop",))
 
     def test_token_save_never_displayed_back(self):

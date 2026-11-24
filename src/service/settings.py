@@ -65,6 +65,7 @@ class SecretStore:
 
 @dataclass
 class AppSettings:
+    schema: int = 2                     # 2: Spotify Connect is the default source
     source_id: str = ""
     monitor_device: str = ""            # optional local monitoring output (informational on Win/mac)
     local_monitoring: bool = False
@@ -93,6 +94,9 @@ class AppSettings:
             return cls()
         known = {f.name for f in fields(cls)}
         s = cls(**{k: v for k, v in data.items() if k in known})
+        if int(data.get("schema", 1)) < 2:
+            s.source_id = ""        # older versions saved a system-capture source; the new default is Spotify Connect
+            s.schema = 2
         try:
             s.quality_config()
         except ValueError:

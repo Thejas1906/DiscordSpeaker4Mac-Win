@@ -3,6 +3,12 @@
 $ErrorActionPreference = "Stop"
 $Version = if ($env:DS_VERSION) { $env:DS_VERSION } else { "2.0.0" }
 python -m pip install -r src\requirements-build.txt
+# librespot (Spotify Connect receiver, MIT). No official Windows binaries: build with Rust (cargo) or point DS_LIBRESPOT at one.
+if (-not $env:DS_LIBRESPOT) {
+    if (-not (Get-Command cargo -ErrorAction SilentlyContinue)) { throw "Install Rust (https://rustup.rs) or set DS_LIBRESPOT to librespot.exe" }
+    cargo install librespot --locked --version 0.8.0
+    $env:DS_LIBRESPOT = "$env:USERPROFILE\.cargo\bin\librespot.exe"
+}
 New-Item -ItemType Directory -Force build | Out-Null
 # .ico from the PNG logo via Qt (no extra dependency)
 python -c "from PySide6.QtGui import QImage; QImage('src/ui/assets/logo.png').scaled(256,256).save('build/DiscordSpeaker.ico')"

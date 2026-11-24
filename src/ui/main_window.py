@@ -8,8 +8,8 @@ import time
 from pathlib import Path
 from typing import Callable, List, Optional
 
-from PySide6.QtCore import QObject, Qt, QTimer, Signal
-from PySide6.QtGui import QAction, QIcon, QPixmap
+from PySide6.QtCore import QObject, Qt, QTimer, QUrl, Signal
+from PySide6.QtGui import QAction, QDesktopServices, QIcon, QPixmap
 from PySide6.QtWidgets import (QApplication, QCheckBox, QComboBox, QFrame, QGridLayout, QHBoxLayout, QLabel, QLineEdit,
                                QListWidget, QListWidgetItem, QMainWindow, QMenu, QMessageBox, QPushButton, QSlider,
                                QSpinBox, QSystemTrayIcon, QTabWidget, QVBoxLayout, QWidget)
@@ -20,10 +20,11 @@ from service.settings import AppSettings, SecretStoreError
 from . import autostart
 from .controller import Controller
 from .theme import ACCENT, BAD, GOOD, QSS, WARN
-from .widgets import LevelMeter, StatusPill
+from .widgets import LevelMeter, StatusPill, StepRow
 
 log = logging.getLogger("DiscordSpeaker.ui")
 OS_NAMES = {"darwin": "macOS", "win32": "Windows", "linux": "Linux"}
+INVITE = "https://discord.com/oauth2/authorize?client_id={cid}&scope=bot%20applications.commands&permissions=3165184"
 
 
 def asset(name: str) -> str:
@@ -55,6 +56,8 @@ class MainWindow(QMainWindow):
         self.s = controller.settings
         self._quitting = False
         self._busy = False
+        self._started = False
+        self.tray = None
         self._channels: List[dict] = []
         self._sources: List[dict] = []
         self._bridge = _Bridge()
@@ -86,8 +89,14 @@ class MainWindow(QMainWindow):
         c.sources.connect(self.on_sources)
         c.channels.connect(self.on_channels)
         c.message.connect(self.say)
-        c.engine_up.connect(lambda up: None if up else self.say("The audio engine stopped unexpectedly.", "error"))
+        c.engine_up.connect(self._engine_up)
         QTimer.singleShot(0, self.boot)
+
+    def _engine_up(self, up: bool) -> None:
+        if not up and self._started:
+            self._started = False
+            self.say("The bot engine stopped unexpectedly. Press Start to try again.", "error")
+            self._render_idle()
 
     # ---- layout ---------------------------------------------------------------------------
     def _header(self):
@@ -97,7 +106,7 @@ class MainWindow(QMainWindow):
         logo.setStyleSheet("background: transparent;")
         col = QVBoxLayout()
         t = QLabel("DiscordSpeaker"); t.setObjectName("title")
-        sub = QLabel(f"{OS_NAMES.get(sys.platform, platform.system())} · desktop audio → Discord voice")
+        sub = QLabel("Play Spotify through your Discord bot")
         sub.setObjectName("sub")
         col.addWidget(t); col.addWidget(sub)
         row.addWidget(logo); row.addSpacing(8); row.addLayout(col); row.addStretch(1)
@@ -105,52 +114,56 @@ class MainWindow(QMainWindow):
 
     def _dashboard(self) -> QWidget:
         w = QWidget(); lay = QVBoxLayout(w); lay.setSpacing(12); lay.setContentsMargins(0, 12, 0, 0)
-        st = card(); sl = QVBoxLayout(st)
-        self.p_discord, self.p_capture, self.p_voice = StatusPill("Discord"), StatusPill("Capture"), StatusPill("Voice")
-        for p in (self.p_discord, self.p_capture, self.p_voice):
-            sl.addWidget(p)
-        lay.addWidget(st)
+
+        steps = card(); sl = QVBoxLayout(steps)
+        sl.addWidget(header("Setup"))
+        self.s_bot = StepRow(1, "Start the bot")
+        self.s_server = StepRow(2, "Add the bot to your server", "Add to server")
+        self.s_voice = StepRow(3, "Join your voice channel")
+        self.s_spotify = StepRow(4, "Play from Spotify")
+        for r in (self.s_bot, self.s_server, self.s_voice, self.s_spotify):
+            sl.addWidget(r)
+        self.s_server.button.clicked.connect(self.open_invite)
+        self.s_server.button.setVisible(False)
+        # optional manual join (the usual way is typing /join in Discord)
+        jr = QHBoxLayout()
+        self.channel_box = QComboBox(); self.channel_box.setAccessibleName("Voice channel")
+        self.channel_box.setVisible(False)
+        self.b_join = QPushButton("Join"); self.b_join.setVisible(False); self.b_join.clicked.connect(self.join_channel)
+        self.b_leave = QPushButton("Leave"); self.b_leave.setVisible(False); self.b_leave.clicked.connect(self.leave_channel)
+        rb = QPushButton("↻"); rb.setToolTip("Refresh channels"); rb.setFixedWidth(44); rb.setVisible(False)
+        rb.clicked.connect(lambda: self.run(self.c.refresh_channels))
+        self._refresh_btn = rb
+        for x in (self.channel_box, rb, self.b_join, self.b_leave):
+            jr.addWidget(x, 1 if x is self.channel_box else 0)
+        sl.addLayout(jr)
+        lay.addWidget(steps)
 
         lv = card(); ll = QVBoxLayout(lv)
-        ll.addWidget(header("Input level"))
+        ll.addWidget(header("Audio"))
         self.meter = LevelMeter(); ll.addWidget(self.meter)
-        g = QGridLayout(); g.setHorizontalSpacing(18)
-        self.l_source, self.l_fmt, self.l_lat, self.l_health = QLabel("—"), QLabel("—"), QLabel("—"), QLabel("—")
-        for i, (k, v) in enumerate((("Source", self.l_source), ("Format", self.l_fmt),
-                                    ("Latency", self.l_lat), ("Stream health", self.l_health))):
-            kk = QLabel(k); kk.setObjectName("sub"); g.addWidget(kk, i, 0); v.setWordWrap(True); g.addWidget(v, i, 1)
-        g.setColumnStretch(1, 1)
-        ll.addLayout(g)
+        self.l_health = QLabel("—"); self.l_health.setObjectName("sub"); self.l_health.setWordWrap(True)
+        self.l_fmt = QLabel("—"); self.l_fmt.setObjectName("sub")
+        ll.addWidget(self.l_fmt); ll.addWidget(self.l_health)
         self.l_hint = QLabel(""); self.l_hint.setWordWrap(True); self.l_hint.setStyleSheet(f"color: {WARN};")
         ll.addWidget(self.l_hint)
-        lay.addWidget(lv)
-
-        ctl = card(); cl = QVBoxLayout(ctl)
-        cl.addWidget(header("Voice channel"))
-        row = QHBoxLayout()
-        self.channel_box = QComboBox(); self.channel_box.setAccessibleName("Voice channel")
-        rb = QPushButton("↻"); rb.setToolTip("Refresh channels"); rb.setFixedWidth(44)
-        rb.clicked.connect(lambda: self.run(self.c.refresh_channels))
-        row.addWidget(self.channel_box, 1); row.addWidget(rb)
-        cl.addLayout(row)
-        cl.addWidget(header("Volume"))
         vr = QHBoxLayout()
+        vl = QLabel("Bot volume"); vl.setObjectName("sub")
         self.vol = QSlider(Qt.Horizontal); self.vol.setRange(1, 200); self.vol.setValue(self.s.volume_percent)
-        self.vol.setAccessibleName("Stream volume")
+        self.vol.setAccessibleName("Bot volume")
         self.vol_l = QLabel(f"{self.s.volume_percent}%"); self.vol_l.setFixedWidth(48)
         self.vol.valueChanged.connect(self._vol)
-        vr.addWidget(self.vol, 1); vr.addWidget(self.vol_l)
-        cl.addLayout(vr)
-        lay.addWidget(ctl)
+        vr.addWidget(vl); vr.addWidget(self.vol, 1); vr.addWidget(self.vol_l)
+        ll.addLayout(vr)
+        vn = QLabel("Keep at 100% for untouched sound. Control the music itself in Spotify."); vn.setObjectName("sub"); vn.setWordWrap(True)
+        ll.addWidget(vn)
+        lay.addWidget(lv)
 
-        br = QHBoxLayout()
-        self.b_start = QPushButton("▶  Start Streaming"); self.b_start.setObjectName("start")
-        self.b_stop = QPushButton("■  Stop Streaming"); self.b_stop.setObjectName("stop")
-        self.b_start.clicked.connect(self.start_stream); self.b_stop.clicked.connect(self.stop_stream)
-        br.addWidget(self.b_start, 1); br.addWidget(self.b_stop, 1)
-        lay.addLayout(br)
+        self.b_main = QPushButton("▶  Start"); self.b_main.setObjectName("start")
+        self.b_main.clicked.connect(self.toggle_bot)
+        lay.addWidget(self.b_main)
         lay.addStretch(1)
-        self.b_stop.setEnabled(False)
+        self._render_idle()
         return w
 
     def _devices(self) -> QWidget:
@@ -215,7 +228,7 @@ class MainWindow(QMainWindow):
         self.cb_tray = QCheckBox("Keep running in the tray / menu bar when the window is closed"); self.cb_tray.setChecked(self.s.minimize_to_tray)
         self.cb_login = QCheckBox("Launch at login"); self.cb_login.setChecked(autostart.is_enabled())
         self.cb_min = QCheckBox("Start minimised"); self.cb_min.setChecked(self.s.start_minimized)
-        self.cb_auto = QCheckBox("Start streaming automatically on launch"); self.cb_auto.setChecked(self.s.auto_stream_on_launch)
+        self.cb_auto = QCheckBox("Start the bot automatically when the app opens"); self.cb_auto.setChecked(self.s.auto_stream_on_launch)
         for cb in (self.cb_tray, self.cb_login, self.cb_min, self.cb_auto):
             bl.addWidget(cb)
         lay.addWidget(b)
@@ -232,7 +245,7 @@ class MainWindow(QMainWindow):
         self.tray = QSystemTrayIcon(QIcon(asset("logo.png")), self)
         m = QMenu()
         self.a_show = QAction("Show DiscordSpeaker", self); self.a_show.triggered.connect(self.bring_front)
-        self.a_toggle = QAction("Start Streaming", self); self.a_toggle.triggered.connect(self.toggle_stream)
+        self.a_toggle = QAction("Start", self); self.a_toggle.triggered.connect(self.toggle_bot)
         a_quit = QAction("Quit", self); a_quit.triggered.connect(self.quit_app)
         for a in (self.a_show, self.a_toggle): m.addAction(a)
         m.addSeparator(); m.addAction(a_quit)
@@ -279,49 +292,52 @@ class MainWindow(QMainWindow):
 
     # ---- boot / actions ---------------------------------------------------------------------------
     def boot(self) -> None:
-        if self.c.secrets.has():
-            self.run(self.c.connect_discord, then=self._after_connect)
-        else:
+        if not self.c.secrets.has():
             self.say("Add your Discord bot token in Settings to get started.", "warn")
             self.tabs.setCurrentIndex(2)
-            self.run(self.c.ensure_engine)
-
-    def _after_connect(self) -> None:
-        if self.s.auto_stream_on_launch:
-            QTimer.singleShot(2500, self.start_stream)
+        elif self.s.auto_stream_on_launch:
+            self.start_bot()
+        else:
+            self.say("Press Start to bring the bot online.", "info")
 
     def _selected_channel(self):
         i = self.channel_box.currentIndex()
         return self._channels[i] if 0 <= i < len(self._channels) else None
 
-    def start_stream(self) -> None:
-        if self._busy:
+    @property
+    def running(self) -> bool:
+        return self._started
+
+    def toggle_bot(self) -> None:
+        (self.stop_bot if self._started else self.start_bot)()
+
+    def start_bot(self) -> None:
+        """Start = bot online + Spotify Connect device visible (the engine starts the receiver once the bot is up)."""
+        if self._busy or self._started:
             return
         if not self.c.secrets.has():
             self.say("Add your Discord bot token in Settings first.", "warn"); self.tabs.setCurrentIndex(2); return
+        self._started = True
+        self.say("Starting…", "info")
+        self.run(self.c.start_bot, busy=True)
+
+    def stop_bot(self) -> None:
+        self._started = False
+        self.run(self.c.stop_bot, busy=True, then=self._render_idle)
+        self.say("Stopped. The bot is offline and removed from Spotify's device list.", "info")
+
+    def open_invite(self) -> None:
+        cid = self.c.last_state.get("discord", {}).get("user_id")
+        if cid:
+            QDesktopServices.openUrl(QUrl(INVITE.format(cid=cid)))
+
+    def join_channel(self) -> None:
         ch = self._selected_channel()
+        if ch:
+            self.run(self.c.join, ch["guild_id"], ch["channel_id"], busy=True)
 
-        def go():
-            if not (self.c.last_state.get("discord", {}).get("logged_in")):
-                self.c.connect_discord()
-                for _ in range(100):
-                    if self.c.last_state.get("discord", {}).get("logged_in"):
-                        break
-                    err = self.c.last_state.get("discord", {}).get("error")
-                    if err:
-                        raise EngineError(err)
-                    time.sleep(0.2)
-                else:
-                    raise EngineError("Timed out waiting for Discord to connect.")
-            self.c.start_streaming(*( (ch["guild_id"], ch["channel_id"]) if ch else (0, 0)))
-        self.run(go, busy=True, then=lambda: self.say(
-            "Streaming." if ch else "Capturing audio. Join a voice channel with /join, or pick one above and press Start.", "info"))
-
-    def stop_stream(self) -> None:
-        self.run(self.c.stop_streaming, busy=True, then=lambda: self.say("Stopped.", "info"))
-
-    def toggle_stream(self) -> None:
-        (self.stop_stream if self.c.streaming else self.start_stream)()
+    def leave_channel(self) -> None:
+        self.run(self.c.leave, busy=True)
 
     def _vol(self, v: int) -> None:
         self.vol_l.setText(f"{v}%")
@@ -402,54 +418,104 @@ class MainWindow(QMainWindow):
         if self.src_list.currentRow() < 0 and self.src_list.count():
             self.src_list.setCurrentRow(0)
 
+    def _render_idle(self) -> None:
+        self.s_bot.set("todo", "Press Start. The bot logs in and appears in Spotify's device list.")
+        self.s_server.set("todo", "After the bot is online, add it to your Discord server.")
+        self.s_server.button.setVisible(False)
+        self.s_voice.set("todo", "In Discord, join a voice channel and type /join.")
+        self.s_spotify.set("todo", "Open Spotify → Connect to a device → pick the bot.")
+        for x in (self.channel_box, self.b_join, self.b_leave, self._refresh_btn):
+            x.setVisible(False)
+        self.meter.set_levels(0.0, 0.0)
+        self.l_fmt.setText("—"); self.l_health.setText("—"); self.l_hint.setText("")
+        self.b_main.setText("▶  Start"); self.b_main.setObjectName("start"); self._restyle()
+        if self.tray:
+            self.a_toggle.setText("Start")
+
+    def _restyle(self) -> None:
+        self.b_main.style().unpolish(self.b_main); self.b_main.style().polish(self.b_main)
+
     def on_state(self, st: dict) -> None:
         a, d = st["audio"], st["discord"]
+        sp = a.get("spotify") or {}
+        voice = d.get("voice") or []
         self.meter.set_levels(a["peak"], a["rms"])
+
+        # 1 bot
         if d.get("error"):
-            self.p_discord.set(d["error"], BAD)
+            self.s_bot.set("error", d["error"])
         elif d.get("logged_in"):
             lat = f" · {d['latency_ms']} ms" if d.get("latency_ms") is not None else ""
-            self.p_discord.set(f"Online as {d.get('user', '')}{lat}", GOOD)
+            self.s_bot.set("done", f"Online as {d.get('name') or d.get('user', '')}{lat}")
         else:
-            self.p_discord.set("Connecting…" if self.c.secrets.has() else "No token", WARN)
+            self.s_bot.set("active", "Connecting to Discord…")
+        online = bool(d.get("logged_in"))
+
+        # 2 server
+        n = d.get("guilds", 0)
+        if not online:
+            self.s_server.set("todo", "After the bot is online, add it to your Discord server."); self.s_server.button.setVisible(False)
+        elif n:
+            self.s_server.set("done", f"In {n} server{'s' if n != 1 else ''}"); self.s_server.button.setVisible(True)
+            self.s_server.button.setText("Add to another")
+        else:
+            self.s_server.set("active", "Not in any server yet. Click the button, choose your server, Authorize.")
+            self.s_server.button.setVisible(True); self.s_server.button.setText("Add to server")
+
+        # 3 voice
+        for x in (self.channel_box, self.b_join, self._refresh_btn):
+            x.setVisible(online and n > 0 and not voice)
+        self.b_leave.setVisible(bool(voice))
+        if voice:
+            self.s_voice.set("done", ("Streaming in " if voice[0]["playing"] else "Connected to ") + voice[0]["channel"])
+        elif online and n:
+            self.s_voice.set("active", "In Discord, join a voice channel and type /join, or pick one below.")
+        else:
+            self.s_voice.set("todo", "In Discord, join a voice channel and type /join.")
+
+        # 4 spotify
         cs = a["state"]
-        self.p_capture.set({"running": "Capturing", "starting": "Starting…", "recovering": f"Recovering — {a['last_error'][:60]}",
-                            "stopped": "Idle", "error": f"Error — {a['last_error'][:80]}"}.get(cs, cs),
-                           {"running": GOOD, "starting": WARN, "recovering": WARN, "stopped": "#6d6f78", "error": BAD}.get(cs, WARN))
-        v = d.get("voice") or []
-        self.p_voice.set(("Streaming in " + v[0]["channel"]) if v and v[0]["playing"] else (f"Connected to {v[0]['channel']}" if v else "Not in a channel"),
-                         GOOD if v and v[0]["playing"] else ("#6d6f78"))
-        self.l_source.setText(a.get("selected") or "—")
+        name = sp.get("device_name") or d.get("name") or "the bot"
+        if cs == "error":
+            self.s_spotify.set("error", a.get("last_error", "Spotify receiver error")[:160])
+        elif cs == "recovering":
+            self.s_spotify.set("active", "Reconnecting the Spotify receiver…")
+        elif cs != "running":
+            self.s_spotify.set("active" if online else "todo",
+                               "Starting the Spotify receiver…" if online else "Open Spotify → Connect to a device → pick the bot.")
+        elif sp.get("now_playing"):
+            self.s_spotify.set("done", f"Now playing: {sp['now_playing']}")
+        elif sp.get("connected"):
+            self.s_spotify.set("done", f"Spotify connected as {sp.get('user') or 'your account'}. Press play in Spotify.")
+        else:
+            self.s_spotify.set("active", f"Open Spotify → Connect to a device → select “{name}”.")
+
         if a["input_rate"]:
             conv = "" if a["input_rate"] == 48000 else f"{a['input_rate']:,} Hz → "
-            self.l_fmt.setText(f"{conv}48,000 Hz · stereo · {a['input_channels']} ch in")
+            self.l_fmt.setText(f"{conv}48,000 Hz · stereo · {a['latency_ms']:.0f} ms buffer" if cs == "running" else "—")
         else:
-            self.l_fmt.setText("48,000 Hz · stereo")
-        self.l_lat.setText(f"{a['latency_ms']:.0f} ms" if cs == "running" else "—")
-        self.l_health.setText(f"{a['underruns']} underruns · {a['overruns']} overruns · {a['drift_corrections']} drift fixes · {a['clipped_samples']} clipped · {a['frames_out'] // 48000} s sent")
-        self.l_hint.setText(
-            "No signal reaching the app. If audio is playing, check the capture source"
-            + (" and the macOS ‘System Audio Recording’ permission (README → macOS)." if sys.platform == "darwin" else ".")
-            if cs == "running" and a.get("silent_s", 0) > 8 and not v else "")
+            self.l_fmt.setText("Waiting for audio from Spotify")
+        self.l_health.setText(f"{a['underruns']} underruns · {a['overruns']} overruns · {a['drift_corrections']} drift fixes · "
+                              f"{a['clipped_samples']} clipped · {a['frames_out'] // 48000} s sent")
+        self.l_hint.setText("")
+        self.b_main.setText("■  Stop" if self._started else "▶  Start")
+        self.b_main.setObjectName("stop" if self._started else "start"); self._restyle()
         self._sync_buttons()
 
     def _sync_buttons(self) -> None:
-        streaming = self.c.streaming
-        voice = bool(self.c.last_state.get("discord", {}).get("voice"))
-        self.b_start.setEnabled(not self._busy and not (streaming and voice))
-        self.b_stop.setEnabled(not self._busy and (streaming or voice))
+        self.b_main.setEnabled(not self._busy)
         if self.tray:
-            self.a_toggle.setText("Stop Streaming" if streaming else "Start Streaming")
+            self.a_toggle.setText("Stop" if self._started else "Start")
 
     # ---- window / tray lifecycle ---------------------------------------------------------------------------
     def bring_front(self) -> None:
         self.showNormal(); self.raise_(); self.activateWindow()
 
     def closeEvent(self, ev) -> None:
-        if (not self._quitting and self.tray and self.s.minimize_to_tray and self.c.streaming):
+        if (not self._quitting and self.tray and self.s.minimize_to_tray and self._started):
             ev.ignore()
             self.hide()
-            self.tray.showMessage("DiscordSpeaker", "Still streaming in the background. Use the tray icon to stop or quit.",
+            self.tray.showMessage("DiscordSpeaker", "The bot is still running in the background. Use the tray icon to stop or quit.",
                                   QSystemTrayIcon.Information, 3000)
             return
         self.quit_app()

@@ -18,57 +18,48 @@ Stream Spotify, your browser, media players, and games to Discord from **Windows
 
 ## How it works
 
-Discord Speaker captures audio on your computer, converts it **once** to 48 kHz stereo float32, and hands it
-straight to libopus, which Discord's voice channels use. A small desktop app (Windows, macOS, Linux) starts
-and stops everything with one click; on Linux a headless Docker deployment is still available.
+Install the app, press **Start**, and your bot shows up in Spotify as a **Connect device**. Pick it in Spotify and the
+music plays straight into your Discord voice channel. You control everything (songs, queue, volume) in the Spotify app.
 
 ```text
-                    ┌──────────────────────────────┐
-  Desktop app  ───► │  Engine process (stdin/out)  │      no network port, dies with the app
-  (PySide6 UI,      │                              │
-   tray / menu bar) │  Discord bot (discord.py)    │ ◄──── slash + prefix commands from Discord
-                    │        ▲                     │
-                    │        │ float32 48 kHz      │
-                    │  Audio pipeline              │  channel map → resample (once) → jitter buffer
-                    │  (drift, underrun, volume)   │  → opus_encode_float → Discord voice
-                    │        ▲                     │
-                    │  Capture backend (per OS)    │
-                    └────────┼─────────────────────┘
-        Windows: WASAPI loopback / virtual cable │ macOS: Core Audio process tap / BlackHole │ Linux: PipeWire/Pulse monitor
+  Spotify app ──► "Connect to a device" ──► Music Speaker (your bot)
+                                                   │  librespot (Spotify Connect receiver, runs inside DiscordSpeaker)
+                                                   ▼  decoded PCM, float32
+                                   resample once → jitter buffer → libopus (float32)
+                                                   ▼
+                                   Discord bot ──► your voice channel (/join)
 ```
 
-- **Share any app.** Windows/macOS capture system audio directly; macOS can also capture a single app; Linux routes apps into a virtual sink.
-- **No music-service credentials.** No Spotify API keys, track URLs, or downloaders.
-- **Quality first.** Defaults avoid any processing that alters your music: no noise suppression, no AGC, no normalisation. See [Audio quality](#audio-quality).
+1. **Install** DiscordSpeaker and add your bot token (Settings, once).
+2. **Click Start.** The bot logs in on your machine and the Spotify device appears.
+3. **Add the bot to your server** (the app has an *Add to server* button) and type `/join` in a voice channel.
+4. **Open Spotify → Connect to a device → pick the bot's name.**
+5. Play and control music in Spotify.
 
-> **Honest status.** Linux (Docker) is validated against a real PulseAudio daemon in CI-style containers. The
-> macOS Core Audio helper and the Windows WASAPI backend are fully implemented and covered by mocked-device
-> tests, but *real-audio verification on each OS needs a human with that hardware*: see
-> [Compatibility and verification](#compatibility-and-verification).
+Nothing is captured from your speakers, so there is no system-audio permission, no virtual audio driver, and a Bluetooth headset
+switching to call mode cannot degrade the sound. You hear the music in Discord (you are in the channel); your Mac's own speakers stay silent.
+
+> **Needs Spotify Premium.** The receiver is [librespot](https://github.com/librespot-org/librespot), an unofficial client that
+> Spotify's terms do not formally permit. See [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
+> The older "capture any app / the whole system" mode is still available under **Devices → advanced sources**, and the Linux Docker deployment is unchanged.
 
 ## Compatibility and verification
 
-| Platform | Capture method | Per-app capture | Implemented | Verified here |
-| :--- | :--- | :--- | :---: | :--- |
-| **Linux** (PipeWire / PulseAudio) | Virtual sink monitor via `parec` (float32) | Yes, move streams into the sink | ✅ | ✅ real PulseAudio daemon in Docker: routing, 440/880 Hz stereo fidelity (119 dB separation), recovery, clean shutdown |
-| **Windows 10/11 x64** | WASAPI loopback of any output; any capture endpoint incl. VB-Audio Cable | No (see [limitations](#known-limitations)) | ✅ | ⚠️ mocked WASAPI only. **Not run on Windows.** |
-| **macOS 14.2+** (Apple Silicon & Intel) | Core Audio **process tap** via bundled `dsaudiotap` helper (no driver) | Yes | ✅ | ✅ Apple Silicon, real hardware: system tap captured a 440 Hz (L) / 880 Hz (R) tone at the right pitch and channels (Bluetooth output at 44.1 kHz). App + DMG built and launched. Per-app capture, BlackHole, sleep/wake and Intel not run on hardware |
-| **macOS 12–14.1** | Input device capture (BlackHole, Loopback…) | No | ✅ | ⚠️ mocked |
+| Platform | Spotify Connect receiver | Advanced: system/app capture | Verified here |
+| :--- | :--- | :--- | :--- |
+| **macOS** (Apple Silicon & Intel) | ✅ bundled `librespot` | Core Audio tap (14.2+), BlackHole inputs | ✅ Apple Silicon, real hardware: bot online, voice streaming, device advertised via Bonjour; system-tap capture verified. Intel not built here |
+| **Windows 10/11 x64** | ✅ (needs `librespot.exe` at build time) | WASAPI loopback, virtual cables | ⚠️ unit tests on real Windows CI runners, mocked devices; **not run on a Windows desktop** |
+| **Linux** | ✅ if `librespot` is installed | PulseAudio/PipeWire sink (Docker deployment) | ✅ Docker + real PulseAudio daemon; Spotify path covered by fake-receiver tests |
 
-Nothing in this table is claimed beyond what is stated. Tests that need real hardware are in
-[`tests/test_hardware.py`](tests/test_hardware.py) and are skipped unless `DS_HARDWARE_TESTS=1`.
+Hardware-dependent tests live in [`tests/test_hardware.py`](tests/test_hardware.py) (skipped unless `DS_HARDWARE_TESTS=1`).
 
 ## Requirements
 
-| | Windows | macOS | Linux |
-| :--- | :--- | :--- | :--- |
-| OS | Windows 10/11, 64-bit | macOS 14.2+ for system/app capture (12+ with BlackHole) | PipeWire + pipewire-pulse (or PulseAudio) |
-| Install | `DiscordSpeaker-…-setup.exe` | `DiscordSpeaker-…-macos-<arch>.dmg` | Docker Engine + Compose v2 **or** `python3` for the desktop app |
-| Extras | None. Optional: [VB-Audio Cable](https://vb-audio.com/Cable/) for per-app isolation | None. Optional: [BlackHole](https://existential.audio/blackhole/) for older macOS or virtual routing | `pavucontrol` for per-app routing (optional) |
-| Discord | A bot token and permission to add the bot to your server (all platforms) | | |
-
-Third-party drivers are **never bundled or auto-installed**. They have their own licences and installers; this
-project only recognises their devices when you have installed them yourself.
+* **Spotify Premium** (for the Spotify Connect mode).
+* A Discord bot token and permission to add the bot to your server.
+* Your computer and the device running Spotify must be on the **same network** (Spotify finds the bot over mDNS/Bonjour). VPNs, guest Wi-Fi and "client isolation" block this.
+* macOS 12+ / Windows 10+ / Linux. macOS may ask to allow **Local Network** access: allow it.
+* Windows: allow DiscordSpeaker through the firewall on **private networks** when asked.
 
 ## Quick start
 
@@ -76,48 +67,32 @@ project only recognises their devices when you have installed them yourself.
 
 1. Create an application and bot in the [Discord Developer Portal](https://discord.com/developers/applications).
    Use [logo.png](.github/assets/logo.png) as the application icon and bot avatar.
-2. Copy the bot token. Keep it private.
-3. Enable **Message Content Intent** on the Bot page: this bot enables that intent
-   for its fallback `!` commands.
-4. Generate an installation URL with `bot` and `applications.commands` scopes.
-   Grant **View Channels**, **Send Messages**, **Embed Links**, **Connect**, and
-   **Speak**, then add the bot to your server. Channel overrides must permit it
-   to view and connect to the intended voice channel.
+2. **Bot → Reset Token → Copy** (it is a long three-part string with dots: not the Public Key or Client Secret). Keep it private.
+3. Enable **Message Content Intent** on the Bot page: this bot enables that intent for its fallback `!` commands.
+4. You add the bot to your server from the app (**Add to server**), or generate an installation URL with `bot` and `applications.commands`
+   scopes and **View Channels**, **Send Messages**, **Embed Links**, **Connect**, **Speak**.
 
-### 2a. Windows
+### 2. Install
 
-1. Run `DiscordSpeaker-<version>-windows-x64-setup.exe` (per-user install, no admin needed). Optionally tick
-   *Start when I sign in*.
-2. Open **DiscordSpeaker** from the Start menu / desktop. **Settings → Discord bot token → Save token.** The token is stored in
-   Windows Credential Manager, never in a file.
-3. **Dashboard:** pick the voice channel, press **Start Streaming**. The tray icon keeps it running when you close the window.
-4. Default source is *System audio – default output* (WASAPI loopback). Whatever you hear is what Discord hears. To stream
-   only one app, send that app to a virtual cable (Windows Settings → System → Sound → Volume mixer) and choose
-   *CABLE Output* on the **Devices** tab.
+* **macOS:** open `DiscordSpeaker-<version>-macos-<arch>.dmg`, drag the app to **Applications**. Unsigned builds: right-click → **Open** the first time.
+  macOS may ask for your login password once to let the app read the token it saved in the Keychain: choose **Always Allow**.
+* **Windows:** run `DiscordSpeaker-<version>-windows-x64-setup.exe` (per-user, no admin). Optionally start with Windows.
+* **Linux:** `packaging/linux/install-desktop-launcher.sh` (needs `librespot`), or the Docker deployment below.
 
-### 2b. macOS
+Build instructions for each platform: [macOS](docs/development-macos.md) · [Windows](docs/development-windows.md) · [Linux](docs/development-linux.md).
 
-1. Open the DMG and drag **DiscordSpeaker** to **Applications**. First launch: if Gatekeeper blocks an unsigned/ad-hoc build,
-   right-click the app → **Open** (a Developer-ID-signed, notarized build avoids this: see [packaging](docs/development-macos.md)).
-2. **Settings → Save token** (stored in the macOS Keychain).
-3. Press **Start Streaming**. macOS asks for **System Audio Recording**; allow it. If you missed the prompt:
-   **System Settings → Privacy & Security → Screen & System Audio Recording → *System Audio Recording Only* → enable DiscordSpeaker**, then press Start again.
-   Without permission macOS delivers *silence* (the app shows “No signal reaching the app”).
-4. To stream a single app, use the **Devices** tab (apps that are playing audio are listed) or `/route_app spotify`.
-5. Using BlackHole instead (older macOS or virtual routing): install it, select **BlackHole 2ch** as a source, and route apps to a
-   Multi-Output Device that includes BlackHole so you can still hear them. macOS asks for Microphone permission for input devices.
+### 3. Use it
 
-### 2c. Linux: desktop app
+1. Open DiscordSpeaker → **Settings → paste the bot token → Save token** (stored in Keychain / Credential Manager / Secret Service, never in a file).
+2. **Dashboard → Start.** Step 1 turns green when the bot is online.
+3. **Add to server** → choose your server → Authorize. In Discord, join a voice channel and type **`/join`** (or pick the channel in the app and press *Join*).
+4. In Spotify (desktop, phone or web) press the **Connect to a device** icon and choose the bot's name, e.g. *Music Speaker*.
+5. Press play. Control songs in Spotify. Press **Stop** to take the bot offline.
 
-```bash
-packaging/linux/install-desktop-launcher.sh   # creates .venv, installs deps, adds "DiscordSpeaker" to your app menu
-# or run directly:
-python3 -m venv .venv && . .venv/bin/activate && pip install -r src/requirements-desktop.txt && python src/app.py
-```
+The first time you select the device Spotify signs it in with your account (this works over the local network, no password is typed anywhere);
+later sessions reuse it.
 
-The token needs a Secret Service keyring (GNOME Keyring / KWallet). Headless? Use Docker or export `DISCORD_BOT_TOKEN`.
-
-### 2d. Linux: Docker (unchanged workflow)
+### Linux headless (Docker, unchanged)
 
 For a new setup, run from the repository root. Keep your existing `.env` if you have already configured it:
 
@@ -133,15 +108,9 @@ docker compose logs -f bot
 
 The token is passed at runtime and excluded from Git and the Docker build
 context. Avoid running a second copy of the bot with the same token (the bot refuses to).
+In Docker mode audio comes from the PulseAudio sink: route apps to **Discord Speaker** in pavucontrol, or use `/route_spotify`.
 
-### 3. Share your first audio
-
-1. Join a Discord voice channel and run `/join` (or press **Start Streaming** in the desktop app).
-2. Start playing music in any app. On Windows/macOS it is captured automatically. On Linux open **pavucontrol → Playback**, find the app and set its output to
-   **Discord Speaker** (older sinks may appear as **Discord_Speaker**), or use `/route_spotify` / `/route_app application:firefox`.
-3. Everyone in the voice channel hears the routed playback.
-
-## Audio routing
+## Advanced: capturing other audio (not Spotify Connect)
 
 | | What `/route_app <name>` does |
 | :--- | :--- |
@@ -151,7 +120,7 @@ context. Avoid running a second copy of the bot with the same token (the bot ref
 
 ### Listen locally
 
-* **Windows / macOS (system or loopback capture):** you keep hearing your audio normally: capture does not mute playback.
+* **Windows / macOS (system or loopback capture, Devices tab):** you keep hearing your audio normally: capture does not mute playback.
 * **Linux:** by default routed audio plays in Discord only. To hear it locally as well:
 
 ```bash
@@ -241,7 +210,10 @@ root filesystem and a small writable `/tmp`.
 
 ## Troubleshooting
 
-- **macOS: “No signal reaching the app” / silence:** grant *System Audio Recording* (see 2b). Input devices need *Microphone*.
+- **The bot is not in Spotify's device list:** your Mac and the Spotify device must be on the same network (no VPN / guest Wi-Fi), the bot must be Started, and on macOS *Local Network* must be allowed for DiscordSpeaker. Premium is required.
+- **Selecting the device does nothing / Spotify says it can't play:** you need Spotify Premium; try selecting the device again.
+- **Friends hear nothing:** make sure they are in the same voice channel as the bot, and that you did not mute the bot *for them*. Check `~/Library/Logs/DiscordSpeaker/engine.jsonl` for `can_encrypt`.
+- **macOS (advanced system capture only): silence:** grant *System Audio Recording*. Input devices need *Microphone*.
 - **macOS: audio stops after sleep or when switching headphones:** the helper re-attaches automatically (default-output change and a 3 s watchdog); if it does not, press Stop/Start.
 - **Windows: nothing is captured:** pick *System audio – default output* on the Devices tab; if your device is exclusive-mode only, disable “Allow applications to take exclusive control”.
 - **Linux: audio connection refused:** verify pipewire-pulse is running in your desktop

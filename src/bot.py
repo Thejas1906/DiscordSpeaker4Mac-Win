@@ -170,6 +170,9 @@ class AudioBot(commands.Bot):
         return {
             "logged_in": bool(self.user) and self.is_ready(),
             "user": str(self.user) if self.user else "",
+            "name": self.user.name if self.user else "",
+            "user_id": self.user.id if self.user else 0,
+            "guilds": len(self.guilds),
             "latency_ms": round(self.latency * 1000) if self.is_ready() and math.isfinite(self.latency) else None,
             "voice": [{"guild": vc.guild.name, "channel": vc.channel.name, "playing": vc.is_playing()} for vc in vcs],
         }

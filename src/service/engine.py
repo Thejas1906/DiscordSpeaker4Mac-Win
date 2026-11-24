@@ -16,6 +16,7 @@ import time
 from typing import Any, Dict, Optional
 
 from . import logsetup
+from .paths import config_dir
 
 log = logging.getLogger("DiscordSpeaker.engine")
 PROTOCOL = 1
@@ -33,6 +34,8 @@ class Engine:
         self.audio = None
         self.discord_error = ""
         self._stop: Optional[asyncio.Event] = None
+        self.preferred_source: Optional[str] = None
+        self._auto_started = False
 
     # ---- protocol -------------------------------------------------------------------
     def emit(self, event: str, **data) -> None:
@@ -99,6 +102,7 @@ class Engine:
         return out
 
     async def cmd_select_source(self, source_id: str):
+        self.preferred_source = source_id
         # (named source_id: a keyword called "id" would collide with the request id in the JSON envelope)
         await self.loop.run_in_executor(None, self.audio.select_source, source_id)
         return True
@@ -126,7 +130,7 @@ class Engine:
         ok, msg = await self.loop.run_in_executor(None, self.audio.route_application, app)
         return {"ok": ok, "message": msg}
 
-    async def cmd_login(self, token: str):
+    async def cmd_login(self, token: str, source_id: Optional[str] = None):
         """Start the Discord bot. Rejects a second process using the same token."""
         from service.instance import AlreadyRunning, InstanceLock
         import bot as botmod
@@ -143,9 +147,26 @@ class Engine:
         self.bot = botmod.bot
         self.bot.audio = self.audio
         self.bot.stop_capture_on_leave = False
-        self.bot.on_state_change = lambda s: self.emit("discord", **s)
+        self.preferred_source = source_id or None
+        self._auto_started = False
+        self.bot.on_state_change = self._on_discord_state
         self.bot_task = asyncio.create_task(self._run_bot(token))
         return {"starting": True}
+
+    def _on_discord_state(self, s: dict) -> None:
+        self.emit("discord", **s)
+        if s.get("logged_in") and not self._auto_started:
+            self._auto_started = True
+            self.loop.create_task(self._auto_start(s.get("name") or "DiscordSpeaker"))
+
+    async def _auto_start(self, bot_name: str) -> None:
+        """Bot is online: expose it in Spotify as '<bot name>' (Spotify Connect) and start receiving."""
+        self.audio.configure_spotify(device_name=bot_name)
+        try:
+            await self.loop.run_in_executor(None, self.audio.start, self.preferred_source or None)
+        except Exception as e:
+            log.warning("auto-start capture failed: %s", e)
+            self.emit("audio_event", kind="error", message=logsetup.redact(str(e)))
 
     async def _run_bot(self, token: str) -> None:
         import discord
@@ -226,6 +247,7 @@ class Engine:
         self.loop = asyncio.get_running_loop()
         self._stop = asyncio.Event()
         self.audio = AudioService(QualityConfig.from_env())
+        self.audio.configure_spotify(cache_dir=str(config_dir() / "spotify"))
         self.audio.add_listener(lambda ev: self.emit("audio_event", kind=ev.kind, message=logsetup.redact(ev.message)))
         for sig in (signal.SIGTERM, signal.SIGINT):
             try:

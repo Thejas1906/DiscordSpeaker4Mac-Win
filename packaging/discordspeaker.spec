@@ -2,6 +2,7 @@
 # Build:  pyinstaller packaging/discordspeaker.spec --noconfirm --distpath dist --workpath build
 import ctypes.util
 import os
+import shutil
 import sys
 from pathlib import Path
 
@@ -27,6 +28,13 @@ elif IS_WIN:
     hidden += ["keyring.backends.Windows", "pyaudiowpatch"]
 else:
     hidden += ["keyring.backends.SecretService", "keyring.backends.libsecret"]
+
+# librespot is the Spotify Connect receiver (MIT, see THIRD_PARTY_NOTICES.md): the app's core feature.
+librespot = os.environ.get("DS_LIBRESPOT") or shutil.which("librespot")
+if not librespot or not Path(librespot).exists():
+    raise SystemExit("librespot not found. macOS: brew install librespot. Windows: cargo install librespot --locked "
+                     "(then set DS_LIBRESPOT to the .exe). See docs/development-*.md")
+binaries.append((str(Path(librespot).resolve()), "."))
 
 # Qt modules the controller never uses (keeps the bundle small)
 excludes = ["PySide6.QtWebEngineCore", "PySide6.QtWebEngineWidgets", "PySide6.QtQuick", "PySide6.QtQml",

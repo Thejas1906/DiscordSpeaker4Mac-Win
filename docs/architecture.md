@@ -66,6 +66,14 @@ This was chosen over sockets/HTTP because there is no listening port to secure, 
 (engine sees EOF → leaves voice, stops capture, kills helper processes), and it works identically on all three OSes. The bot token is sent over this pipe,
 never on a command line or in the environment, and is never logged.
 
+### Spotify Connect (primary desktop source)
+
+`audio/spotify_connect.py` runs **librespot** (`--backend pipe --format F32 --bitrate 320`, device name = the bot's username) as a child
+process. It decodes Spotify's stream and writes float32 / 44.1 kHz / stereo PCM to stdout, which feeds the same pipeline as every other source
+(one resample to 48 kHz, jitter buffer, `opus_encode_float`). The engine starts it as soon as the bot is online (`Engine._auto_start`), so the device is visible
+in Spotify while the bot runs. It is just another capture *source* (`spotify:connect`) of every OS backend, so system/app capture remains available as an advanced option.
+Requires Spotify Premium; librespot is MIT-licensed and unofficial.
+
 ### Audio data path
 
 `backend thread` → `pipeline.push(float32 frames @ native rate)` → *(one polyphase resample if rate ≠ 48 kHz)* → ring buffer

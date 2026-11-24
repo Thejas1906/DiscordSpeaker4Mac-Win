@@ -1,6 +1,6 @@
 # Development: macOS (Apple Silicon and Intel)
 
-Prerequisites: Xcode command line tools (`swiftc`, `lipo`), Python 3.12+, `brew install opus` (libopus is bundled into the app from here).
+Prerequisites: Xcode command line tools (`swiftc`, `lipo`), Python 3.12+, `brew install opus`, **`brew install librespot`** (the Spotify Connect receiver bundled into the app) (libopus is bundled into the app from here).
 
 ```bash
 python3 -m venv .venv && . .venv/bin/activate

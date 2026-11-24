@@ -10,6 +10,8 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 ARCH=$(uname -m); VERSION=${DS_VERSION:-2.0.0}
 PY=${PYTHON:-python3}
+command -v librespot >/dev/null || { echo "Install librespot first: brew install librespot"; exit 1; }
+export DS_LIBRESPOT=$(python3 -c "import os,shutil;print(os.path.realpath(shutil.which('librespot')))")
 
 src/audio/platforms/macos/tap/build.sh
 mkdir -p build

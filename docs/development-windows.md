@@ -1,6 +1,6 @@
 # Development: Windows 10/11 x64
 
-Prerequisites: Python 3.12 x64, PowerShell. Optional: Inno Setup 6 (`choco install innosetup`).
+Prerequisites: Python 3.12 x64, PowerShell, Rust (`cargo install librespot --locked --version 0.8.0` builds the bundled Spotify Connect receiver; there are no official Windows binaries). Optional: Inno Setup 6 (`choco install innosetup`).
 
 ```powershell
 python -m venv .venv; .\.venv\Scripts\Activate.ps1

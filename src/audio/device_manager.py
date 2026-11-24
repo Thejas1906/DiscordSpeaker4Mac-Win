@@ -42,7 +42,7 @@ class DeviceManager:
         self.selected: Optional[str] = None
 
     def refresh(self) -> List[Dict]:
-        sources = self.backend.list_sources()
+        sources = self.backend.all_sources()
         out = [s.to_dict() for s in sources]
         if self.selected and not any(s.id == self.selected for s in sources):
             out.append(CaptureSource(self.selected, f"{self.selected} (disconnected)",

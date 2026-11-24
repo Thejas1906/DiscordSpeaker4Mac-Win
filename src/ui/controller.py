@@ -66,6 +66,25 @@ class Controller(QObject):
         self.client.request("set_volume", percent=self.settings.volume_percent)
         self.refresh_sources()
 
+    def start_bot(self) -> None:
+        """Bot online; the engine then publishes the Spotify Connect device under the bot's name."""
+        self.connect_discord()
+
+    def stop_bot(self) -> None:
+        self.shutdown()
+        self.last_state = {}
+        self._logged_in_once = False
+        self.engine_up.emit(False)
+
+    def join(self, guild_id: int, channel_id: int) -> None:
+        self.settings.guild_id, self.settings.channel_id = guild_id, channel_id
+        self.settings.save()
+        self.client.request("join", guild_id=guild_id, channel_id=channel_id, timeout=30)
+
+    def leave(self) -> None:
+        if self.client and self.client.alive:
+            self.client.request("leave", timeout=15)
+
     def connect_discord(self) -> None:
         """Log the bot in (idempotent) using the token from the OS credential store."""
         self.ensure_engine()
@@ -73,7 +92,7 @@ class Controller(QObject):
         if not token:
             raise EngineError("No bot token saved. Open Settings and add your Discord bot token.")
         self._logged_in_once = False
-        self.client.request("login", token=token)
+        self.client.request("login", token=token, source_id=self.settings.source_id or None)
 
     def shutdown(self) -> None:
         if self.client:
@@ -82,12 +101,16 @@ class Controller(QObject):
 
     # ---- actions (called from worker threads) --------------------------------------------
     def refresh_sources(self) -> None:
+        if not (self.client and self.client.alive):
+            return
         try:
             self.sources.emit(self.client.request("list_sources", timeout=20))
         except EngineError as e:
             self.message.emit(str(e), "warn")
 
     def refresh_channels(self) -> None:
+        if not (self.client and self.client.alive):
+            return
         try:
             self.channels.emit(self.client.request("list_channels"))
         except EngineError as e:

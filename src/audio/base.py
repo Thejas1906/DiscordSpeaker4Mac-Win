@@ -12,8 +12,9 @@ import threading
 from typing import Callable, List, Optional, Tuple
 
 from .models import (AudioError, CaptureEvent, CaptureSource, CaptureState,
-                     DeviceInfo, DeviceUnavailableError, PermissionDeniedError)
+                     BackendUnavailableError, DeviceInfo, DeviceUnavailableError, PermissionDeniedError)
 from .pipeline import AudioPipeline
+from . import spotify_connect
 
 log = logging.getLogger("DiscordSpeaker.audio")
 
@@ -31,6 +32,12 @@ class CaptureBackend(abc.ABC):
         self._thread: Optional[threading.Thread] = None
         self._stop = threading.Event()
         self._lock = threading.RLock()
+        self._proc = None                       # helper process owned by the active capture (if any)
+        # Spotify Connect receiver (available on every OS through the same pipeline)
+        self.device_name = "DiscordSpeaker"
+        self.spotify_cache_dir: Optional[str] = None
+        self.spotify = spotify_connect.SpotifyConnectState()
+        self.default_source_id: Optional[str] = None
 
     # ---- discovery (backend specific) ----------------------------------
     @abc.abstractmethod
@@ -39,8 +46,21 @@ class CaptureBackend(abc.ABC):
     @abc.abstractmethod
     def list_sources(self) -> List[CaptureSource]: ...
 
+    def all_sources(self) -> List[CaptureSource]:
+        """Spotify Connect first, then whatever the OS backend can capture."""
+        try:
+            os_sources = self.list_sources()
+        except Exception as e:  # a missing OS audio library must not hide the Spotify source
+            log.warning("listing OS sources failed: %s", e)
+            os_sources = []
+        return [spotify_connect.source()] + os_sources
+
     def default_source(self) -> Optional[CaptureSource]:
-        srcs = [s for s in self.list_sources() if s.available]
+        srcs = [s for s in self.all_sources() if s.available]
+        if self.default_source_id:
+            for s in srcs:
+                if s.id == self.default_source_id:
+                    return s
         return srcs[0] if srcs else None
 
     def list_applications(self) -> List[str]:
@@ -112,6 +132,12 @@ class CaptureBackend(abc.ABC):
         with self._lock:
             t = self._thread
             self._stop.set()
+            p = self._proc
+            if p is not None and p.poll() is None:      # unblock a reader waiting on a quiet helper process
+                try:
+                    p.terminate()
+                except Exception:
+                    pass
         if t and t.is_alive() and t is not threading.current_thread():
             t.join(timeout)
         with self._lock:
@@ -130,7 +156,7 @@ class CaptureBackend(abc.ABC):
             self.start(source_id)
 
     def _find(self, source_id: str) -> Optional[CaptureSource]:
-        for s in self.list_sources():
+        for s in self.all_sources():
             if s.id == source_id:
                 return s
         return None
@@ -141,13 +167,18 @@ class CaptureBackend(abc.ABC):
             src = None
             try:
                 src = self._find(self._source_id)
+                if src is not None and not src.available and src.id == spotify_connect.SPOTIFY_SOURCE_ID:
+                    raise BackendUnavailableError(spotify_connect.MISSING_MESSAGE)
                 if src is None or not src.available:
                     raise DeviceUnavailableError(f"Source '{self._source_id}' is not available")
-                self._run_capture(src, stop)
+                if src.id == spotify_connect.SPOTIFY_SOURCE_ID:
+                    spotify_connect.run(self, src, stop)
+                else:
+                    self._run_capture(src, stop)
                 if stop.is_set():
                     break
                 raise DeviceUnavailableError("capture ended unexpectedly")
-            except PermissionDeniedError as e:
+            except (PermissionDeniedError, BackendUnavailableError) as e:   # retrying cannot fix these
                 self._set_state(CaptureState.ERROR, str(e))
                 self._emit("error", str(e), fatal=True)
                 return
