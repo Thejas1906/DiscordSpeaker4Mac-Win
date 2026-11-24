@@ -195,7 +195,21 @@ class AudioBot(commands.Bot):
 
         voice_client.play(source, after=after_playback)
         logger.info(f"Audio stream active in channel: {voice_client.channel.name}")
+        asyncio.get_running_loop().create_task(self._voice_diag(voice_client))
         self._notify()
+
+    async def _voice_diag(self, vc: discord.VoiceClient, rounds: int = 6, every: float = 5.0):
+        """Log Discord's voice/E2EE (DAVE) state so 'connected but nobody hears it' can be diagnosed."""
+        for _ in range(rounds):
+            await asyncio.sleep(every)
+            if not vc.is_connected() or not vc.is_playing():
+                return
+            conn = getattr(vc, "_connection", None)
+            h = self.audio.pipeline.health
+            logger.info(
+                "voice diag: channel=%s dave_version=%s can_encrypt=%s sent=%ds peak=%.3f silent_for=%.0fs underruns=%d",
+                vc.channel.name, getattr(conn, "dave_protocol_version", "n/a"), getattr(conn, "can_encrypt", "n/a"),
+                h.frames_out // 48000, h.peak, h.silent_s, h.underruns)
 
     async def connect_and_stream(self, guild: discord.Guild, target: discord.VoiceChannel):
         """Shared by /join, !join and the desktop controller. Returns (voice_client, error_message)."""
