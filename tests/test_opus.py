@@ -41,7 +41,8 @@ class OpusTests(unittest.TestCase):
         self.assertEqual(OpusFloatEncoder._pick_bitrate(QualityConfig(), 96000), 96000)
         self.assertEqual(OpusFloatEncoder._pick_bitrate(QualityConfig(), 384000), 384000)
         self.assertEqual(OpusFloatEncoder._pick_bitrate(QualityConfig(opus_bitrate_kbps=64), 96000), 64000)
-        self.assertEqual(OpusFloatEncoder._pick_bitrate(QualityConfig(opus_bitrate_kbps=510), 96000), 96000)
+        self.assertEqual(OpusFloatEncoder._pick_bitrate(QualityConfig(opus_bitrate_kbps=192), 64000), 192000)   # explicit beats channel
+        self.assertEqual(OpusFloatEncoder._pick_bitrate(QualityConfig(opus_bitrate_kbps=510), 96000), 510000)
         self.assertEqual(OpusFloatEncoder._pick_bitrate(QualityConfig(), None), 510000)
 
     def test_music_defaults_disable_fec(self):

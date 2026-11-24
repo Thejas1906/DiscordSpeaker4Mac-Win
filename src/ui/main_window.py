@@ -197,7 +197,7 @@ class MainWindow(QMainWindow):
         self.monitor = QCheckBox("Listen locally (Linux loopback)"); self.monitor.setChecked(self.s.local_monitoring)
         self.monitor.setVisible(sys.platform.startswith("linux"))
         ql.addWidget(self.monitor, 5, 0, 1, 2)
-        note = QLabel("Quality changes apply the next time streaming starts. Discord transmission is lossy (Opus)."); note.setObjectName("sub"); note.setWordWrap(True)
+        note = QLabel("Auto uses the voice channel's bitrate (often 64 kbps). A higher number (try 128–256) sends better audio, if Discord's server accepts it. Changes apply the next time the bot joins a channel."); note.setObjectName("sub"); note.setWordWrap(True)
         ql.addWidget(note, 6, 0, 1, 2)
         lay.addWidget(q)
 

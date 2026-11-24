@@ -169,7 +169,7 @@ Full detail: [docs/audio-quality.md](docs/audio-quality.md). In short:
   for 44.1→48 kHz, >100 dB across the other tested rates; a 48 kHz source is **bit-exact**), buffer, then feed **float32 straight into libopus**
   (`opus_encode_float`). There is no 16-bit step before Discord's encode.
 * Music-tuned Opus: `audio` application, `music` signal, fullband, complexity 10, VBR, **FEC off** (at a fixed bitrate it takes
-  bits from the music), bitrate = the voice channel's bitrate (up to Opus' 510 kbps). discord.py's default of 128 kbps, FEC on and a 15 % loss
+  bits from the music), bitrate = the voice channel's bitrate by default (Settings can set 16–510 kbps explicitly). discord.py's default of 128 kbps, FEC on and a 15 % loss
   assumption is bypassed.
 * Underruns fade out and re-prime (no clicks); overflows drop the oldest audio; clock drift between capture and Discord's clock is
   absorbed with a ±0.1 % micro-adjust only when the buffer leaves its band; format changes (device rate switches) rebuild the converter.
@@ -209,6 +209,8 @@ root filesystem and a small writable `/tmp`.
 * Logs: structured JSON lines with the token redacted: Windows `%LOCALAPPDATA%\DiscordSpeaker\Logs`, macOS `~/Library/Logs/DiscordSpeaker`, Linux `~/.local/state/DiscordSpeaker`.
 
 ## Troubleshooting
+
+- **It sounds worse to *me* than Spotify on its own (muffled, thin):** you are listening through Discord, and Discord counts as a call. If your Bluetooth headphones are also your Discord *input*, macOS switches them to a 16 kHz call profile and everything you hear in Discord, including the bot, is degraded (your friends are unaffected). In Discord → **User Settings → Voice & Video → Input Device**, choose the **MacBook microphone** (or any non-Bluetooth mic), and check **System Settings → Sound → Input** shows the same. The headphones then stay in high-quality mode. Also raise the voice channel's bitrate (Edit Channel → Bitrate).
 
 - **The bot is not in Spotify's device list:** your Mac and the Spotify device must be on the same network (no VPN / guest Wi-Fi), the bot must be Started, and on macOS *Local Network* must be allowed for DiscordSpeaker. Premium is required.
 - **Selecting the device does nothing / Spotify says it can't play:** you need Spotify Premium; try selecting the device again.

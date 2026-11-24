@@ -55,10 +55,13 @@ class OpusFloatEncoder:
 
     @staticmethod
     def _pick_bitrate(cfg: QualityConfig, channel_bps: Optional[int]) -> int:
-        """Auto = the voice channel's bitrate (Discord will not carry more); never above Opus' 510 kbps."""
-        cap = min(channel_bps or OPUS_MAX_KBPS * 1000, OPUS_MAX_KBPS * 1000)
-        want = cfg.opus_bitrate_kbps * 1000 if cfg.opus_bitrate_kbps else cap
-        return int(min(want, cap))
+        """Auto (0) = the voice channel's bitrate. An explicit setting is honoured up to Opus' 510 kbps even
+        above the channel's number: Discord's clients decode whatever arrives, and the channel value is only a
+        client-side default, so a higher bitrate is a user-controlled quality experiment."""
+        auto = min(channel_bps or OPUS_MAX_KBPS * 1000, OPUS_MAX_KBPS * 1000)
+        if cfg.opus_bitrate_kbps:
+            return int(min(cfg.opus_bitrate_kbps * 1000, OPUS_MAX_KBPS * 1000))
+        return int(auto)
 
     def encode(self, frame: np.ndarray) -> bytes:
         pcm = np.ascontiguousarray(frame, dtype=np.float32)
