@@ -39,5 +39,10 @@ codesign --verify --deep --strict "$APP"
 
 DMG="dist/DiscordSpeaker-$VERSION-macos-$ARCH.dmg"
 rm -f "$DMG"; STAGE=$(mktemp -d); cp -R "$APP" "$STAGE/"; ln -s /Applications "$STAGE/Applications"
-hdiutil create -volname "DiscordSpeaker" -srcfolder "$STAGE" -ov -format UDZO "$DMG" >/dev/null
+# hdiutil sometimes fails with "Resource busy" right after signing (seen on CI runners): retry.
+for attempt in 1 2 3 4 5; do
+  hdiutil create -volname "DiscordSpeaker" -srcfolder "$STAGE" -ov -format UDZO "$DMG" >/dev/null && break
+  [ "$attempt" = 5 ] && { echo "hdiutil failed after 5 attempts"; exit 1; }
+  echo "hdiutil busy, retrying ($attempt)..."; sleep $((attempt * 3))
+done
 echo "Built $DMG"
