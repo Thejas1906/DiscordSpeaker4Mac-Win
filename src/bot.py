@@ -10,6 +10,7 @@ All capture, conversion and Opus encoding lives in the `audio` package; this mod
 import asyncio
 import json
 import logging
+import math
 import os
 import signal
 import subprocess
@@ -169,7 +170,7 @@ class AudioBot(commands.Bot):
         return {
             "logged_in": bool(self.user) and self.is_ready(),
             "user": str(self.user) if self.user else "",
-            "latency_ms": round(self.latency * 1000) if self.is_ready() and self.latency == self.latency else None,
+            "latency_ms": round(self.latency * 1000) if self.is_ready() and math.isfinite(self.latency) else None,
             "voice": [{"guild": vc.guild.name, "channel": vc.channel.name, "playing": vc.is_playing()} for vc in vcs],
         }
 
