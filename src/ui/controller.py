@@ -40,7 +40,9 @@ class Controller(QObject):
             self.state.emit(ev)
             if ev["discord"].get("logged_in") and not self._logged_in_once:
                 self._logged_in_once = True
-                self.refresh_channels()
+                # Never call client.request() on the engine-reader thread: it would wait for a reply that
+                # only this same thread can deliver (deadlock -> "list_channels timed out").
+                threading.Thread(target=self.refresh_channels, daemon=True).start()
         elif name == "discord_error":
             self.message.emit(ev.get("message", "Discord error"), "error")
         elif name == "audio_event":

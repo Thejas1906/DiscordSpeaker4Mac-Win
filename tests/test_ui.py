@@ -83,6 +83,23 @@ class UiTests(unittest.TestCase):
         self.assertEqual(self.w.channel_box.count(), 1)
         self.assertIn("unavailable", self.w.src_list.item(1).text())
 
+    def test_channel_refresh_triggered_from_event_does_not_deadlock(self):
+        """Regression: refresh_channels() ran on the engine-reader thread and timed out waiting for its own reply."""
+        import threading
+        self.pump()
+        seen = {}
+        orig = FakeClient.request
+        def request(self, cmd, timeout=0, **a):
+            if cmd == "list_channels":
+                seen["thread"] = threading.current_thread()
+            return orig(self, cmd, timeout, **a)
+        with patch.object(FakeClient, "request", request):
+            self.c._logged_in_once = False
+            self.c._on_event(self.state()); self.pump(300)
+        self.assertIn("thread", seen)
+        self.assertIsNot(seen["thread"], threading.current_thread(), "must not run inline on the event thread")
+        self.assertEqual(self.w.channel_box.count(), 1)
+
     def test_status_widgets_and_button_states_follow_engine_state(self):
         self.pump(); self.c._on_event(self.state()); self.pump(50)
         self.assertTrue(self.w.b_start.isEnabled()); self.assertFalse(self.w.b_stop.isEnabled())
@@ -140,6 +157,7 @@ class UiTests(unittest.TestCase):
         self.w.buf.setValue(250); self.w.apply_settings(); self.pump(300)
         self.assertEqual(self.c.settings.quality["buffer_ms"], 250)
 
+    @unittest.skipIf(sys.platform == "win32", "writes the real HKCU Run key; covered by manual Windows testing")
     def test_launch_at_login_files_written_and_removed(self):
         from ui import autostart
         with patch.object(autostart.Path, "home", return_value=__import__("pathlib").Path(self.tmp.name)), \
